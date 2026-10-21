@@ -1,0 +1,9 @@
+# 核心依赖（必须）
+pyyaml>=6.0
+psutil>=5.9
+
+# Windows 读 CPU 温度/占用：需要另外安装并运行 LibreHardwareMonitor，
+# 并开启它的 Remote Web Server（见 README）。不需要额外 Python 包。
+
+# 可选增强：没有 nvidia-smi 命令时读 GPU 温度
+# pynvml>=12.0.0

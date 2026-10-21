@@ -1,0 +1,30 @@
+# temguard 配置 —— 改完直接重启 python main.py 即可，不用动代码。
+
+sample:
+  interval_seconds: 5          # 每隔多少秒检查一次
+  log_file: logs/temps.csv     # 温度日志路径（会自动建表头）
+
+thresholds:
+  # 所有温度阈值单位都是 °C，取 CPU/GPU 中最热的那个来判断。
+  warning_c: 90                # 达到这个温度就进入“警告”
+  terminate_c: 93              # 连续 ≥ 这个温度满 terminate_seconds 就“终止进程”
+  shutdown_c: 95               # 连续 shutdown_samples 次 ≥ 这个温度就“关机”
+  reset_c: 88                  # 低于这个温度算恢复正常，所有计时/计数清零
+  terminate_seconds: 1200      # 20 分钟
+  shutdown_samples: 3          # 连续 3 次
+
+actions:
+  dry_run: true                # 公开版默认演习；本机真实参数放 config.local.yaml
+  terminate_processes:         # 熔断时要终止的进程名，不区分大小写
+    - blender.exe
+    - python.exe
+  shutdown_delay_seconds: 60   # 真关机时留给你的取消时间；取消命令：shutdown /a
+
+sensors:
+  cpu: true                    # 关掉后不再读 CPU 温度
+  gpu: true                    # 关掉后不再读 GPU 温度
+
+notify:
+  print: true                  # 打印到屏幕
+  phone:
+    webhook: ""                # 以后填手机推送地址即启用；现在留空
