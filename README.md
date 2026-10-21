@@ -78,6 +78,13 @@ python main.py               # 正常跑，Ctrl+C 停
 
 本机真实模式（`config.local.yaml` 里 `dry_run: false`）会把上面的“演习”换成真实终止/真实关机。
 
+运行过程中每 5 秒还会打印一行采样状态，即使状态没变也会刷新，方便确认程序还活着：
+
+```text
+[采样] 00:59:37  CPU 87.5°C  GPU 53.0°C  安全
+[采样] 00:59:42  CPU 88.1°C  GPU 53.0°C  安全
+```
+
 日志在 `logs/temps.csv`，列为：
 
 ```text

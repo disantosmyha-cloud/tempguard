@@ -75,6 +75,14 @@ def _fmt(value: Optional[float]) -> str:
     return "" if value is None else f"{value:.1f}"
 
 
+def _console(text: str) -> None:
+    """每轮状态行；打印失败也不能影响主循环。"""
+    try:
+        print(text, flush=True)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------- 进程处理
 
 def _protected_pids() -> set:
@@ -304,6 +312,13 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
                     "；".join(decision.reasons),
                 ])
                 fh.flush()
+
+                _console(
+                    f"[采样] {dt.datetime.now():%H:%M:%S}  "
+                    f"CPU {_fmt(temps.get('cpu')) or '--'}°C  "
+                    f"GPU {_fmt(temps.get('gpu')) or '--'}°C  "
+                    f"{decision.label}"
+                )
 
                 _handle_state(decision, prev_state, config)
                 prev_state = decision.state
