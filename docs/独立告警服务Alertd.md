@@ -175,13 +175,25 @@ X-Alert-Token: 本机token
 
 temguard 的关机/终止进程动作会使用 `notify.critical_wait_seconds` 调用 `wait: true`，避免“告警还没发出就关机”。
 
+### 重试失败告警
+
+```http
+POST /retry
+X-Alert-Token: 本机token
+Content-Type: application/json
+
+{"id": 42}
+```
+
+把一条 `failed` 重新放回 pending；用于通道恢复后补发。
+
 ### 健康检查
 
 ```http
 GET /health
 ```
 
-返回 `pending`、`outbox` 各状态计数、`channels`、`adapters` 和最近失败（`failures`）。
+返回 `pending`、`outbox` 各状态计数、`channels`、`adapters` 和最近失败（`failures`），可用于确认是否有告警需要重试。
 
 ---
 

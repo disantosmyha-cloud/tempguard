@@ -260,7 +260,7 @@ def _make_handler(service: AlertService):
             self._send(200, service.health())
 
         def do_POST(self):
-            if self.path != "/alert":
+            if self.path not in ("/alert", "/retry"):
                 self._send(404, {"status": "error", "message": "not found"})
                 return
             if not self._authorized():
@@ -282,6 +282,18 @@ def _make_handler(service: AlertService):
                 return
             if not isinstance(payload, dict):
                 self._send(400, {"status": "error", "message": "invalid payload"})
+                return
+
+            if self.path == "/retry":
+                try:
+                    item_id = int(payload.get("id"))
+                except (TypeError, ValueError):
+                    self._send(400, {"status": "error", "message": "invalid id"})
+                    return
+                if not service.outbox.requeue_failed(item_id):
+                    self._send(404, {"status": "error", "message": "failed item not found"})
+                    return
+                self._send(200, {"status": "requeued", "id": item_id})
                 return
 
             level = str(payload.get("level") or "INFO").upper()

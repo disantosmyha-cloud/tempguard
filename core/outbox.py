@@ -157,6 +157,16 @@ class Outbox:
             )
             self._db.commit()
 
+    def requeue_failed(self, item_id: int) -> bool:
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE outbox SET status='pending', attempts=0, results=NULL "
+                "WHERE id=? AND status='failed'",
+                (int(item_id),),
+            )
+            self._db.commit()
+            return cur.rowcount > 0
+
     def failures(self, limit: int = 10) -> list[dict]:
         with self._lock:
             rows = self._db.execute(
