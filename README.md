@@ -25,6 +25,7 @@
 - **只认连续**：瞬时峰值只到警告，掉回阈值以下计时/计数立即重来。
 - **开机保护**：启动后 180 秒内、且未读到正常温度前，即使传感器报 100°C+ 也只警告，不会直接关机。
 - **演习模式**：所有危险动作都可以先空跑。
+- **微信机器人告警**：企业微信群机器人 Webhook，状态变化时推送；后台线程发送，不阻塞监控。
 - **读不到不崩**：传感器缺失记为 `None`，主循环照常跑。
 - **单轮错误保护**：采样、写日志、发通知哪一步出错，打印后继续下一轮。
 - **日志即证据**：每次采样一行 CSV，事后能回看温度、状态和原因。
@@ -67,6 +68,26 @@ python main.py --once        # 只检查一次，确认配置和传感器
 python main.py --dry-run     # 强制演习模式跑循环
 python main.py               # 正常跑，Ctrl+C 停（会打开黑窗口）
 ```
+
+### 微信机器人告警
+
+1. 企业微信群 → 群设置 → 群机器人 → 添加机器人；
+2. 复制 Webhook；
+3. 填到 `config.local.yaml`：
+
+```yaml
+notify:
+  wechat:
+    webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key"
+```
+
+4. 测试：
+
+```powershell
+python main.py --test-wechat
+```
+
+完整步骤、@ 人、错误码和密钥安全说明见 [docs/微信机器人接入.md](docs/微信机器人接入.md)。公开的 `config.yaml` 里 Webhook 保持空字符串，不要提交密钥。
 
 ### 后台运行（无黑窗口）
 
@@ -134,7 +155,10 @@ time,cpu,gpu,hottest,state,reason
 | `actions.shutdown_delay_seconds` | 60 | 真关机时留给你的取消时间；取消命令 `shutdown /a` |
 | `sensors.cpu` / `sensors.gpu` | `true` | 单独关掉某个温度来源 |
 | `notify.print` | `true` | 打印到屏幕 |
-| `notify.phone.webhook` | 空 | 以后填手机推送地址即启用；现在留空 |
+| `notify.wechat.webhook` | 空 | 企业微信群机器人 Webhook；只填 `config.local.yaml` |
+| `notify.wechat.mentioned_list` | `[]` | 可选 @ 人，例如 `["@all"]` |
+| `notify.wechat.mentioned_mobile_list` | `[]` | 可选 @ 手机号 |
+| `notify.wechat.timeout_seconds` | 5 | 微信请求超时（秒） |
 
 ## 状态与动作
 
@@ -167,7 +191,7 @@ Windows 上要让 CPU 温度可读，必须让 LibreHardwareMonitor 以管理员
 
 ## 路线图
 
-- [ ] 手机推送（`core/notify.py` 的 `_push_phone()`，企业微信 / 钉钉 / Server酱 / Bark 任选）
+- [x] 企业微信群机器人告警（见 [docs/微信机器人接入.md](docs/微信机器人接入.md)）
 - [ ] 温度曲线图（读 `logs/temps.csv` 画个 SVG）
 - [ ] 触发后自动降频而不是终止进程
 

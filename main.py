@@ -273,6 +273,12 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
     config = dict(config)
     config["actions"] = actions
     dry = bool(actions.get("dry_run", True))
+    notify_cfg = config.get("notify") or {}
+    wechat_webhook = str(
+        (notify_cfg.get("wechat") or {}).get("webhook")
+        or (notify_cfg.get("phone") or {}).get("webhook")
+        or ""
+    ).strip()
 
     notify_mod.notify(
         "INFO",
@@ -281,6 +287,7 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
         f"连续 {_duration_text(fuse.terminate_seconds)} ≥ {fuse.terminate_c:.0f}°C 终止进程，"
         f"连续 {fuse.shutdown_samples} 次 ≥ {fuse.shutdown_c:.0f}°C 关机；"
         f"启动保护 {fuse.startup_grace_seconds:.0f}s；"
+        f"微信{'已启用' if wechat_webhook else '未配置'}；"
         f"{'演习模式（不真动手）' if dry else '真实模式'}",
         config,
     )
@@ -352,6 +359,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         action="store_true",
         help="强制演习模式（覆盖 config 里的 actions.dry_run）",
     )
+    parser.add_argument(
+        "--test-wechat",
+        action="store_true",
+        help="给配置的微信机器人发送一条测试消息后退出",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -359,6 +371,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     except Exception as exc:
         print(f"读取配置失败：{exc}")
         return 1
+
+    if args.test_wechat:
+        ok = notify_mod.send_test(config)
+        print(
+            "微信机器人测试消息发送成功"
+            if ok
+            else "微信机器人测试消息发送失败：检查 notify.wechat.webhook 和网络"
+        )
+        return 0 if ok else 1
 
     try:
         return run(config, once=args.once, dry_run=True if args.dry_run else None)

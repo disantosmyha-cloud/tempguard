@@ -31,5 +31,8 @@ sensors:
 
 notify:
   print: true                  # 打印到屏幕
-  phone:
-    webhook: ""                # 以后填手机推送地址即启用；现在留空
+  wechat:
+    webhook: ""                # 企业微信群机器人 webhook；只填在 config.local.yaml
+    mentioned_list: []         # 例如 ["@all"] 或 ["zhangsan"]
+    mentioned_mobile_list: []  # 例如 ["13800138000"]
+    timeout_seconds: 5         # 微信请求超时时间（秒）
