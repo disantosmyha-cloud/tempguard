@@ -252,12 +252,75 @@ def _push_email(data: dict, level: str, message: str, stamp: str) -> bool:
         return False
 
 
+# ---------------------------------------------------------------- 独立告警服务 alertd
+
+def _alertd_config(cfg: dict) -> Tuple[bool, str, str, float]:
+    section = cfg.get("alertd") or {}
+    mode = str(cfg.get("mode") or "direct").strip().lower()
+    enabled = bool(section.get("enabled", mode == "alertd")) and mode == "alertd"
+    url = str(section.get("url") or "http://127.0.0.1:8765/alert").strip()
+    token = str(section.get("token") or "").strip()
+    timeout = _as_float(section.get("timeout_seconds"), 3.0)
+    return enabled, url, token, timeout
+
+
+def _push_alertd(url: str, token: str, level: str, message: str, stamp: str, timeout: float) -> bool:
+    payload = {
+        "level": level,
+        "message": message,
+        "timestamp": stamp,
+        "source": "temguard",
+    }
+    try:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["X-Alert-Token"] = token
+        request = urllib.request.Request(url, data=body, method="POST", headers=headers)
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return 200 <= response.status < 300
+    except Exception:
+        return False
+
+
+def send_direct(
+    config: Optional[dict],
+    level: str,
+    message: str,
+    include_print: bool = False,
+) -> bool:
+    """同步把所有直连通道发一遍。alertd 服务内部会调用它。"""
+    stamp = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cfg = (config or {}).get("notify") or {}
+    text = _message_text(level, message, stamp)
+    sent = False
+
+    if include_print and cfg.get("print", True):
+        sent = _safe_print(text) or sent
+
+    enabled, base_url, api_key, umos, timeout = _astrbot_config(cfg)
+    if enabled:
+        sent = _push_astrbot(base_url, api_key, umos, text, timeout) or sent
+
+    webhook, mentions, mobiles, wx_timeout = _wechat_config(cfg)
+    if webhook:
+        payload = _build_wechat_payload(level, message, stamp, mentions, mobiles)
+        sent = _push_wechat(webhook, payload, wx_timeout) or sent
+
+    email_enabled, email_data = _email_config(cfg)
+    if email_enabled:
+        sent = _push_email(email_data, level, message, stamp) or sent
+
+    return sent
+
+
 # ---------------------------------------------------------------- 对外接口
 
 def notify(level: str, message: str, config: Optional[dict] = None) -> bool:
-    """发一条通知，返回是否至少有一个通道排入发送。
+    """发一条通知，返回是否至少排入了一个发送线程。
 
-    所有网络通道都是后台发送：返回 True 只代表已交给发送线程，不代表对方已收到。
+    notify.mode == "alertd" 时只把告警投递给本机 alertd 服务；
+    否则直接走 AstrBot / 企业微信 / 邮件。
     """
     stamp = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cfg = (config or {}).get("notify") or {}
@@ -267,44 +330,21 @@ def notify(level: str, message: str, config: Optional[dict] = None) -> bool:
     if cfg.get("print", True):
         sent = _safe_print(text) or sent
 
-    # AstrBot：一次发到多个 UMO，由 AstrBot 路由到微信/QQ/飞书/钉钉等。
-    enabled, base_url, api_key, umos, timeout = _astrbot_config(cfg)
+    enabled, url, token, timeout = _alertd_config(cfg)
     if enabled:
-        sent = _async_send(_push_astrbot, base_url, api_key, umos, text, timeout) or sent
+        return _async_send(
+            _push_alertd, url, token, level, message, stamp, timeout
+        ) or sent
 
-    # 企业微信群机器人：不经过 AstrBot 的备用直连通道。
-    webhook, mentions, mobiles, wx_timeout = _wechat_config(cfg)
-    if webhook:
-        payload = _build_wechat_payload(level, message, stamp, mentions, mobiles)
-        sent = _async_send(_push_wechat, webhook, payload, wx_timeout) or sent
-
-    # 邮件：AstrBot 不覆盖邮件，单独走 SMTP。
-    email_enabled, email_data = _email_config(cfg)
-    if email_enabled:
-        sent = _async_send(_push_email, email_data, level, message, stamp) or sent
-
-    return sent
+    return _async_send(send_direct, config, level, message, False) or sent
 
 
 def send_test(config: Optional[dict] = None) -> bool:
-    """同步发送一条测试消息到所有已配置通道。"""
-    stamp = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    """同步发送一条测试消息到 alertd 或所有直连通道。"""
     cfg = (config or {}).get("notify") or {}
     message = "temguard 告警通道测试：如果你收到这条消息，说明配置已经生效。"
-    text = _message_text(INFO, message, stamp)
-    sent = False
-
-    enabled, base_url, api_key, umos, timeout = _astrbot_config(cfg)
+    stamp = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    enabled, url, token, timeout = _alertd_config(cfg)
     if enabled:
-        sent = _push_astrbot(base_url, api_key, umos, text, timeout) or sent
-
-    webhook, mentions, mobiles, wx_timeout = _wechat_config(cfg)
-    if webhook:
-        payload = _build_wechat_payload(INFO, message, stamp, mentions, mobiles)
-        sent = _push_wechat(webhook, payload, wx_timeout) or sent
-
-    email_enabled, email_data = _email_config(cfg)
-    if email_enabled:
-        sent = _push_email(email_data, INFO, message, stamp) or sent
-
-    return sent
+        return _push_alertd(url, token, INFO, message, stamp, timeout)
+    return send_direct(config, INFO, message, False)

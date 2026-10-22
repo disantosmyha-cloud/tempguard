@@ -1,5 +1,9 @@
 # 通过 AstrBot 接入微信 / QQ / 飞书 / 钉钉 / 国外社交软件
 
+> 推荐架构：`temguard → alertd → AstrBot`。alertd 是独立告警服务，负责队列、重试和日志；AstrBot 只做协议层。见 [独立告警服务 alertd](独立告警服务Alertd.md)。
+>
+> 本文说明 AstrBot 侧怎么配置；如果只想简单直连，也可以让 temguard 直接调用 AstrBot。
+
 tempguard 不直接对接所有社交平台，而是把告警交给 **AstrBot**，由 AstrBot 用它已经接好的平台适配器转发。
 
 ```text

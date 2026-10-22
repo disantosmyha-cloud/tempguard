@@ -24,15 +24,32 @@ actions:
     - blender.exe
     - python.exe
   shutdown_delay_seconds: 60   # 真关机时留给你的取消时间；取消命令：shutdown /a
-  protect_keywords:            # 命令行包含这些词的进程不终止（保护 AstrBot）
+  protect_keywords:            # 命令行包含这些词的进程不终止（保护告警服务）
     - astrbot
+    - alertd
 
 sensors:
   cpu: true                    # 关掉后不再读 CPU 温度
   gpu: true                    # 关掉后不再读 GPU 温度
 
+alertd:
+  host: "127.0.0.1"            # 只监听本机
+  port: 8765
+  token: ""                    # 本机可选鉴权；只填 config.local.yaml
+  log_file: logs/alerts.jsonl
+  retry_attempts: 3
+  retry_backoff_seconds: 2
+
 notify:
   print: true                  # 打印到屏幕
+  mode: direct                 # direct=temguard 自己发；alertd=投递给独立告警服务
+
+  # 独立告警服务 alertd：temguard 只 POST 到这里
+  alertd:
+    enabled: false
+    url: "http://127.0.0.1:8765/alert"
+    token: ""                  # 和 alertd.token 一致；只填 config.local.yaml
+    timeout_seconds: 3
 
   # AstrBot Open API：把告警交给 AstrBot，由它路由到已接好的微信/QQ/飞书/钉钉等
   astrbot:

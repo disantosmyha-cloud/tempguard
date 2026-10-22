@@ -296,13 +296,18 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
         or ""
     ).strip()
 
+    mode = str(notify_cfg.get("mode") or "direct").strip().lower()
+    alertd_cfg = notify_cfg.get("alertd") or {}
     channels = []
-    if astrbot_cfg.get("enabled") and astrbot_cfg.get("api_key") and astrbot_cfg.get("umos"):
-        channels.append("AstrBot")
-    if wechat_webhook:
-        channels.append("企业微信")
-    if email_cfg.get("enabled") and email_cfg.get("smtp_host") and email_cfg.get("to_addrs"):
-        channels.append("邮件")
+    if mode == "alertd" and alertd_cfg.get("enabled"):
+        channels.append("alertd")
+    else:
+        if astrbot_cfg.get("enabled") and astrbot_cfg.get("api_key") and astrbot_cfg.get("umos"):
+            channels.append("AstrBot")
+        if wechat_webhook:
+            channels.append("企业微信")
+        if email_cfg.get("enabled") and email_cfg.get("smtp_host") and email_cfg.get("to_addrs"):
+            channels.append("邮件")
     channel_text = "、".join(channels) or "仅屏幕"
 
     notify_mod.notify(

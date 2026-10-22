@@ -25,7 +25,8 @@
 - **只认连续**：瞬时峰值只到警告，掉回阈值以下计时/计数立即重来。
 - **开机保护**：启动后 180 秒内、且未读到正常温度前，即使传感器报 100°C+ 也只警告，不会直接关机。
 - **演习模式**：所有危险动作都可以先空跑。
-- **多平台告警**：通过 AstrBot Open API 转发到微信/QQ/飞书/钉钉/Telegram/Discord/Slack；也支持企业微信直连和 SMTP 邮件。后台线程发送，不阻塞监控。
+- **多平台告警**：通过 AstrBot Open API 转发到微信/QQ/飞书/钉钉/Telegram/Discord/Slack；也支持企业微信直连和 SMTP 邮件。
+- **独立告警服务**：temguard → alertd → AstrBot/企业微信/邮件，带队列、重试、健康检查和发送日志；告警通道故障不拖慢监控。
 - **读不到不崩**：传感器缺失记为 `None`，主循环照常跑。
 - **单轮错误保护**：采样、写日志、发通知哪一步出错，打印后继续下一轮。
 - **日志即证据**：每次采样一行 CSV，事后能回看温度、状态和原因。
@@ -85,13 +86,35 @@ notify:
     timeout_seconds: 5
 ```
 
-测试所有已配置通道：
+### 独立告警服务 alertd
+
+推荐架构：
+
+```text
+temguard → alertd (127.0.0.1:8765) → AstrBot → 微信/QQ/飞书/钉钉/Telegram/Discord
+                                   → 企业微信直连
+                                   → SMTP 邮件
+```
+
+`alertd` 是独立进程，负责接收、排队、重试、日志和分发；AstrBot 只做协议层。这样 AstrBot 或某个平台出问题，不会拖住 temguard 主循环。
+
+健康检查：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8765/health
+```
+
+本机已注册三个计划任务：`AstrBot`、`alertd`、`temguard`。
+
+完整说明见 [docs/独立告警服务Alertd.md](docs/独立告警服务Alertd.md)。
+
+### 测试所有告警通道
 
 ```powershell
 python main.py --test-notify
 ```
 
-完整说明见 [docs/AstrBot告警接入.md](docs/AstrBot告警接入.md)，包括怎么找 QQ/飞书/钉钉/Telegram 的 UMO、怎么接 SMTP 邮件，以及怎么保护 AstrBot 不被熔断误杀。
+AstrBot 平台配置见 [docs/AstrBot告警接入.md](docs/AstrBot告警接入.md)，包括怎么找 QQ/飞书/钉钉/Telegram 的 UMO、怎么接 SMTP 邮件，以及怎么保护 AstrBot 不被熔断误杀。
 
 如果不想经过 AstrBot，也可以直接用企业微信群机器人：
 
@@ -167,8 +190,14 @@ time,cpu,gpu,hottest,state,reason
 | `actions.dry_run` | `true` | 公开默认演习；本机 `config.local.yaml` 里是 `false`（真实模式） |
 | `actions.terminate_processes` | `[blender.exe, python.exe]` | 要终止的进程名，不区分大小写 |
 | `actions.shutdown_delay_seconds` | 60 | 真关机时留给你的取消时间；取消命令 `shutdown /a` |
-| `actions.protect_keywords` | `[astrbot]` | 命令行包含这些词的进程不会被终止，保护告警机器人 |
+| `actions.protect_keywords` | `[astrbot, alertd]` | 命令行包含这些词的进程不会被终止，保护告警服务 |
 | `sensors.cpu` / `sensors.gpu` | `true` | 单独关掉某个温度来源 |
+| `alertd.host` / `alertd.port` | `127.0.0.1` / 8765 | 独立告警服务监听地址 |
+| `alertd.token` | 空 | alertd 的本机鉴权 token |
+| `alertd.retry_attempts` | 3 | 发送失败重试次数 |
+| `notify.mode` | `direct` | `direct`=temguard 自己发；`alertd`=投递给独立服务 |
+| `notify.alertd.enabled` | `false` | 是否启用 alertd 模式 |
+| `notify.alertd.url` | `http://127.0.0.1:8765/alert` | alertd 接收地址 |
 | `notify.print` | `true` | 打印到屏幕 |
 | `notify.astrbot.enabled` | `false` | 是否通过 AstrBot 转发 |
 | `notify.astrbot.base_url` | `http://127.0.0.1:6185` | AstrBot Dashboard 地址 |
