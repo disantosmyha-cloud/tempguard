@@ -6,6 +6,7 @@ logs/*.jsonl
 runtime/
 dsh-plugin-tempguard/node_modules/
 dsh-plugin-tempguard/package-lock.json
+*.tgz
 
 # ---- Python ----
 __pycache__/
