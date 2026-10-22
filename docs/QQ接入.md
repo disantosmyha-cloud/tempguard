@@ -71,16 +71,46 @@ python main.py --test-notify
 
 ## 5. 当前环境状态
 
-本机还没有安装 QQ NT / OneBot 桥；GitHub 下载 NapCat/Lagrange 二进制时被网络重置，未能完成二维码登录。
-
-适配器、配置模板和测试已经准备好：
+本机已经完成 QQ 接入：
 
 ```text
-adapters/qq_onebot.py   已实现并通过 mock 测试
-config.local.yaml       qq-onebot 模板默认关闭
+QQ 9.9.33-52230
+NapCat Shell 4.18.41
+QQ 号：1356532261（北落师门）
+OneBot HTTP：127.0.0.1:3000
+快速登录：launcher.bat 1356532261
+计划任务：NapCat（登录时启动）
 ```
 
-桥接器装好后，把上面配置里的 `enabled` 改成 `true`、填 `target_id`，重启 alertd 即可扫码登录并测试。
+tempguard 当前配置：
+
+```yaml
+alertd:
+  adapters:
+    - name: qq-onebot
+      type: qq_onebot
+      enabled: true
+      base_url: "http://127.0.0.1:3000"
+      target_type: "private"
+      target_id: "1356532261"
+```
+
+AstrBot 的告警出口已关闭，但 AstrBot 进程和代码保留，不影响 QQ。
+
+验证：
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:3000/get_login_info -ContentType application/json -Body '{}'
+python main.py --test-notify
+```
+
+最近一次测试结果：
+
+```json
+{"name": "qq-onebot", "type": "qq_onebot", "ok": true}
+```
+
+如果要把告警发到 QQ 群，把 `target_type` 改成 `group`，`target_id` 填群号，然后重启 alertd。
 
 ## 6. 安全
 

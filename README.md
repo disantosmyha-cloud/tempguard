@@ -106,7 +106,7 @@ temguard → alertd (127.0.0.1:8765) → AstrBot → 微信/QQ/飞书/钉钉/Tel
 Invoke-RestMethod http://127.0.0.1:8765/health
 ```
 
-本机已注册三个计划任务：`AstrBot`、`alertd`、`temguard`。
+本机已注册四个计划任务：`AstrBot`（保留备用）、`NapCat`（QQ 协议层）、`alertd`、`temguard`。
 
 完整说明见 [docs/独立告警服务Alertd.md](docs/独立告警服务Alertd.md)。
 
