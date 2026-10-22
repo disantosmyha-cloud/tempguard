@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import json
 import os
 import subprocess
 import time
@@ -23,6 +24,8 @@ import yaml
 from core import fuse as fuse_mod
 from core import notify as notify_mod
 from core import sensors
+from core.config import validate_config
+from core.single_instance import AlreadyRunning, InstanceLock
 
 try:
     import psutil
@@ -37,7 +40,7 @@ CSV_HEADER = ["time", "cpu", "gpu", "hottest", "state", "reason"]
 
 def load_config(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+        return validate_config(yaml.safe_load(fh) or {})
 
 
 def _default_config_path() -> Path:
@@ -130,6 +133,15 @@ def _find_processes(
     return matches
 
 
+def _critical_wait_seconds(config: dict) -> float:
+    cfg = (config.get("notify") or {}).get("critical_wait_seconds", 10)
+    try:
+        value = float(cfg)
+    except (TypeError, ValueError):
+        value = 10.0
+    return max(1.0, min(30.0, value))
+
+
 def _handle_terminate(decision: fuse_mod.Decision, config: dict) -> None:
     """处理“终止进程”状态。"""
     actions = config.get("actions") or {}
@@ -138,8 +150,19 @@ def _handle_terminate(decision: fuse_mod.Decision, config: dict) -> None:
         names = [names]
     dry_run = bool(actions.get("dry_run", True))
     reason = "；".join(decision.reasons) or "温度持续超限"
-
-    notify_mod.notify("TRIP", f"持续高温，终止进程。{reason}", config)
+    wait_seconds = _critical_wait_seconds(config)
+    delivered = notify_mod.notify_blocking(
+        "TRIP",
+        f"持续高温，终止进程。{reason}",
+        config,
+        timeout=wait_seconds,
+    )
+    if not delivered:
+        notify_mod.notify(
+            "WARN",
+            f"关键告警未在 {wait_seconds:.0f}s 内确认送达；仍按温度安全策略继续",
+            config,
+        )
 
     if not names:
         notify_mod.notify("WARN", "没有配置 actions.terminate_processes，跳过终止", config)
@@ -212,7 +235,19 @@ def _handle_shutdown(decision: fuse_mod.Decision, config: dict) -> None:
         delay = 60
 
     reason = "；".join(decision.reasons) or "温度达到关机线"
-    notify_mod.notify("TRIP", f"危险高温，需要关机。{reason}", config)
+    wait_seconds = _critical_wait_seconds(config)
+    delivered = notify_mod.notify_blocking(
+        "TRIP",
+        f"危险高温，需要关机。{reason}",
+        config,
+        timeout=wait_seconds,
+    )
+    if not delivered:
+        notify_mod.notify(
+            "WARN",
+            f"关键关机告警未在 {wait_seconds:.0f}s 内确认送达；仍执行温度安全策略",
+            config,
+        )
 
     if dry_run:
         notify_mod.notify(
@@ -268,6 +303,33 @@ def _duration_text(seconds: float) -> str:
     return f"{seconds:.0f} 秒"
 
 
+def _cold_boot() -> bool:
+    """同一 Windows 启动周期内只保护第一次启动，避免重启绕过安全动作。"""
+    state_path = ROOT / "logs" / "boot_state.json"
+    try:
+        current = float(psutil.boot_time()) if psutil is not None else time.time()
+    except Exception:
+        current = time.time()
+    cold = True
+    try:
+        if state_path.exists():
+            previous = float(json.loads(state_path.read_text(encoding="utf-8"))["boot_time"])
+            cold = abs(previous - current) > 2.0
+    except Exception:
+        cold = True
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = state_path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"boot_time": current, "checked_at": time.time()}),
+            encoding="utf-8",
+        )
+        tmp.replace(state_path)
+    except Exception:
+        pass
+    return cold
+
+
 def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int:
     sample_cfg = config.get("sample") or {}
     interval = max(1.0, float(sample_cfg.get("interval_seconds", 5)))
@@ -275,9 +337,11 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
     if not log_path.is_absolute():
         log_path = ROOT / log_path
 
+    cold_boot = _cold_boot()
     fuse = fuse_mod.Fuse(
         config.get("thresholds"),
         safety=config.get("safety"),
+        cold_boot=cold_boot,
     )
     sensors_cfg = config.get("sensors") or {}
 
@@ -316,7 +380,7 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
         f"警告线 {fuse.warning_c:.0f}°C，"
         f"连续 {_duration_text(fuse.terminate_seconds)} ≥ {fuse.terminate_c:.0f}°C 终止进程，"
         f"连续 {fuse.shutdown_samples} 次 ≥ {fuse.shutdown_c:.0f}°C 关机；"
-        f"启动保护 {fuse.startup_grace_seconds:.0f}s；"
+        f"启动保护 {fuse.startup_grace_seconds:.0f}s（仅冷启动）；"
         f"推送：{channel_text}；"
         f"{'演习模式（不真动手）' if dry else '真实模式'}",
         config,
@@ -413,11 +477,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         return 0 if ok else 1
 
+    lock = None
+    if not args.once:
+        try:
+            lock = InstanceLock("temguard", ROOT / "logs").acquire()
+        except AlreadyRunning as exc:
+            print(f"temguard 未启动：{exc}")
+            return 0
+
     try:
         return run(config, once=args.once, dry_run=True if args.dry_run else None)
     except Exception as exc:
         print(f"temguard 启动失败：{type(exc).__name__}: {exc}")
         return 1
+    finally:
+        if lock is not None:
+            lock.release()
 
 
 if __name__ == "__main__":

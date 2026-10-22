@@ -1,18 +1,14 @@
 """独立告警服务 alertd。
 
-架构：
+可靠性约束：
 
-    temguard --HTTP--> alertd --+--> AstrBot Open API --> 微信/QQ/飞书/钉钉/Telegram...
-                                +--> 企业微信群机器人直连
-                                +--> SMTP 邮件
-                                +--> logs/alerts.jsonl
-
-AstrBot 只作为“协议适配层”，alertd 自己负责接收、排队、重试、记录和分发告警。
-这样换掉 AstrBot 或增加官方 Webhook，都不用改 temguard 主循环。
+1. 每条告警先写入 SQLite outbox，再发送；进程崩溃/重启不丢 pending。
+2. TRIP 优先于 WARN，WARN 优先于 INFO。
+3. 适配器并行 fanout，单个通道超时不会阻塞其他通道。
+4. 支持 `wait=true`：temguard 在关机/终止进程前可以同步等待投递结果。
 
 运行：
     python alertd.py
-    python alertd.py --config config.local.yaml
 
 健康检查：
     http://127.0.0.1:8765/health
@@ -22,9 +18,10 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hmac
 import json
-import queue
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
@@ -32,17 +29,21 @@ from typing import Optional
 import yaml
 
 from adapters import AdapterManager, Alert, build_adapters
+from core.config import validate_config
+from core.outbox import Outbox, OutboxFull
+from core.single_instance import AlreadyRunning, InstanceLock
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 MAX_BODY_BYTES = 64 * 1024
 MAX_LOG_BYTES = 5 * 1024 * 1024
+DEFAULT_WAIT_SECONDS = 10.0
 
 
 def load_config(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+        return validate_config(yaml.safe_load(fh) or {})
 
 
 def default_config_path() -> Path:
@@ -59,44 +60,115 @@ class AlertService:
         self.token = str(cfg.get("token") or "").strip()
         self.retry_attempts = max(1, int(cfg.get("retry_attempts", 3)))
         self.retry_backoff = max(0.0, float(cfg.get("retry_backoff_seconds", 2)))
+        self.default_wait = max(
+            1.0,
+            min(30.0, float(cfg.get("wait_default_seconds", DEFAULT_WAIT_SECONDS))),
+        )
         self.adapter_manager = AdapterManager(
             build_adapters(config),
             retry_attempts=self.retry_attempts,
             retry_backoff=self.retry_backoff,
         )
-        self.queue: "queue.Queue[Optional[tuple]]" = queue.Queue(maxsize=200)
+
+        db_file = Path(cfg.get("db_file") or "logs/alerts.db")
+        if not db_file.is_absolute():
+            db_file = ROOT / db_file
+        self.outbox = Outbox(
+            db_file,
+            max_pending=int(cfg.get("max_pending", 1000)),
+        )
         self.log_path = Path(cfg.get("log_file") or "logs/alerts.jsonl")
         if not self.log_path.is_absolute():
             self.log_path = ROOT / self.log_path
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._log_lock = threading.Lock()
-        self._worker = threading.Thread(
-            target=self._run_worker,
-            name="alertd-worker",
-            daemon=True,
-        )
+
+        self._waiters_lock = threading.Lock()
+        self._waiters: dict[int, threading.Event] = {}
+        self._completed: dict[int, dict] = {}
+        self._stop = threading.Event()
+        worker_count = max(1, min(8, int(cfg.get("workers", 2))))
+        self._workers = [
+            threading.Thread(
+                target=self._run_worker,
+                name=f"alertd-worker-{index + 1}",
+                daemon=True,
+            )
+            for index in range(worker_count)
+        ]
 
     def start(self) -> None:
-        self._worker.start()
+        recovered = self.outbox.reset_inflight()
+        if recovered:
+            self._append_log(
+                {
+                    "time": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "event": "recovered_inflight",
+                    "count": recovered,
+                }
+            )
+        for worker in self._workers:
+            worker.start()
 
-    def enqueue(self, level: str, message: str, source: str) -> None:
-        self.queue.put_nowait((level, message, source))
+    def stop(self) -> None:
+        self._stop.set()
+        for worker in self._workers:
+            try:
+                worker.join(timeout=5)
+            except Exception:
+                pass
+        self.outbox.close()
+
+    def enqueue(self, level: str, message: str, source: str) -> int:
+        return self.outbox.enqueue(level, message[:2000], source)
+
+    def wait_result(self, item_id: int, timeout: float) -> dict:
+        timeout = max(1.0, min(30.0, float(timeout)))
+        event = threading.Event()
+        with self._waiters_lock:
+            done = self._completed.get(item_id)
+            if done is not None:
+                return done
+            self._waiters[item_id] = event
+        try:
+            if event.wait(timeout):
+                with self._waiters_lock:
+                    return self._completed.get(
+                        item_id,
+                        {"id": item_id, "status": "accepted"},
+                    )
+            return {"id": item_id, "status": "accepted"}
+        finally:
+            with self._waiters_lock:
+                self._waiters.pop(item_id, None)
 
     def channels(self) -> list:
         return self.adapter_manager.channels()
 
+    def health(self) -> dict:
+        return {
+            "status": "ok",
+            "pending": self.outbox.pending_count(),
+            "outbox": self.outbox.stats(),
+            "channels": self.channels(),
+            "adapters": self.adapter_manager.health(),
+            "failures": self.outbox.failures(5),
+        }
+
     def _run_worker(self) -> None:
-        while True:
-            item = self.queue.get()
+        while not self._stop.is_set():
+            item = self.outbox.claim_next()
             if item is None:
-                self.queue.task_done()
-                return
-            level, message, source = item
+                self._stop.wait(0.25)
+                continue
+
             alert = Alert(
-                level=level,
-                message=message,
-                timestamp=dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                source=source,
+                level=item.level,
+                message=item.message,
+                timestamp=dt.datetime.fromtimestamp(item.created_at).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+                source=item.source,
             )
             try:
                 results = self.adapter_manager.send(alert)
@@ -110,21 +182,35 @@ class AlertService:
                         "error": str(exc)[:300],
                     }
                 ]
-            self._append_log(
-                {
-                    "time": alert.timestamp,
-                    "level": level,
-                    "source": source,
-                    "message": message,
-                    "ok": any(item.get("ok") for item in results),
-                    "attempts": max(
-                        (int(item.get("attempts") or 0) for item in results),
-                        default=0,
-                    ),
-                    "results": results,
-                }
-            )
-            self.queue.task_done()
+            ok = any(result.get("ok") for result in results)
+            self.outbox.finish(item.id, ok, results)
+            payload = {
+                "id": item.id,
+                "time": alert.timestamp,
+                "level": item.level,
+                "source": item.source,
+                "message": item.message,
+                "ok": ok,
+                "status": "delivered" if ok else "failed",
+                "attempts": max(
+                    (int(result.get("attempts") or 0) for result in results),
+                    default=0,
+                ),
+                "results": results,
+            }
+            self._append_log(payload)
+            self._complete(item.id, payload)
+
+    def _complete(self, item_id: int, payload: dict) -> None:
+        with self._waiters_lock:
+            self._completed[item_id] = payload
+            event = self._waiters.get(item_id)
+            if event is not None:
+                event.set()
+            # 避免 completed 无限增长；保留最近 2000 条。
+            if len(self._completed) > 2000:
+                for key in sorted(self._completed)[:1000]:
+                    self._completed.pop(key, None)
 
     def _append_log(self, record: dict) -> None:
         line = json.dumps(record, ensure_ascii=False) + "\n"
@@ -144,10 +230,10 @@ class AlertService:
 
 def _make_handler(service: AlertService):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "temguard-alertd/1.0"
+        server_version = "temguard-alertd/2.0"
 
         def log_message(self, fmt, *args):
-            return  # 不把访问日志打到找不到的控制台
+            return
 
         def _send(self, status: int, payload: dict) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -165,21 +251,13 @@ def _make_handler(service: AlertService):
                 auth = self.headers.get("Authorization", "").strip()
                 if auth.lower().startswith("bearer "):
                     supplied = auth[7:].strip()
-            return supplied == service.token
+            return hmac.compare_digest(supplied, service.token)
 
         def do_GET(self):
             if self.path != "/health":
                 self._send(404, {"status": "error", "message": "not found"})
                 return
-            self._send(
-                200,
-                {
-                    "status": "ok",
-                    "queue": service.queue.qsize(),
-                    "channels": service.channels(),
-                    "adapters": service.adapter_manager.health(),
-                },
-            )
+            self._send(200, service.health())
 
         def do_POST(self):
             if self.path != "/alert":
@@ -198,8 +276,7 @@ def _make_handler(service: AlertService):
                 return
 
             try:
-                raw = self.rfile.read(length)
-                payload = json.loads(raw.decode("utf-8"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
             except Exception:
                 self._send(400, {"status": "error", "message": "invalid json"})
                 return
@@ -218,42 +295,64 @@ def _make_handler(service: AlertService):
                 return
 
             try:
-                service.enqueue(level, message[:2000], source)
-            except queue.Full:
-                self._send(503, {"status": "error", "message": "queue full"})
+                item_id = service.enqueue(level, message, source)
+            except OutboxFull as exc:
+                self._send(503, {"status": "error", "message": str(exc)})
                 return
-            self._send(202, {"status": "accepted"})
+            except Exception as exc:
+                self._send(500, {"status": "error", "message": str(exc)[:300]})
+                return
+
+            if payload.get("wait"):
+                try:
+                    wait_seconds = float(
+                        payload.get("timeout_seconds", service.default_wait)
+                    )
+                except (TypeError, ValueError):
+                    wait_seconds = service.default_wait
+                self._send(200, service.wait_result(item_id, wait_seconds))
+                return
+            self._send(202, {"status": "accepted", "id": item_id})
 
     return Handler
 
 
 def run(config_path: Path) -> int:
     config = load_config(config_path)
-    service = AlertService(config)
-    service.start()
-    handler = _make_handler(service)
     try:
-        httpd = ThreadingHTTPServer((service.host, service.port), handler)
-    except OSError as exc:
-        print(f"alertd 启动失败：{service.host}:{service.port} 无法监听：{exc}")
-        return 1
-    httpd.daemon_threads = True
-    print(
-        f"alertd 已启动：http://{service.host}:{service.port} "
-        f"channels={','.join(service.channels()) or 'none'}",
-        flush=True,
-    )
+        lock = InstanceLock("alertd", ROOT / "logs").acquire()
+    except AlreadyRunning as exc:
+        print(f"alertd 未启动：{exc}")
+        return 0
+    service = None
+    httpd = None
     try:
-        httpd.serve_forever(poll_interval=0.5)
-    except KeyboardInterrupt:
-        pass
-    finally:
+        service = AlertService(config)
+        service.start()
+        handler = _make_handler(service)
         try:
-            service.queue.put_nowait(None)
-        except Exception:
+            httpd = ThreadingHTTPServer((service.host, service.port), handler)
+        except OSError as exc:
+            print(f"alertd 启动失败：{service.host}:{service.port} 无法监听：{exc}")
+            return 1
+        httpd.daemon_threads = True
+        print(
+            f"alertd 已启动：http://{service.host}:{service.port} "
+            f"channels={','.join(service.channels()) or 'none'} "
+            f"pending={service.outbox.pending_count()}",
+            flush=True,
+        )
+        try:
+            httpd.serve_forever(poll_interval=0.5)
+        except KeyboardInterrupt:
             pass
-        httpd.server_close()
-    return 0
+        return 0
+    finally:
+        if service is not None:
+            service.stop()
+        if httpd is not None:
+            httpd.server_close()
+        lock.release()
 
 
 def main(argv: Optional[list] = None) -> int:

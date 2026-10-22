@@ -26,7 +26,8 @@
 - **开机保护**：启动后 180 秒内、且未读到正常温度前，即使传感器报 100°C+ 也只警告，不会直接关机。
 - **演习模式**：所有危险动作都可以先空跑。
 - **多平台告警**：通过 AstrBot Open API 转发到微信/QQ/飞书/钉钉/Telegram/Discord/Slack；也支持企业微信直连和 SMTP 邮件。
-- **独立告警服务**：temguard → alertd → 可插拔适配器，带队列、重试、健康检查和发送日志；告警通道故障不拖慢监控。
+- **独立告警服务**：temguard → alertd → 可插拔适配器，带 SQLite 持久化 outbox、TRIP 优先级、并行 fanout、重试、健康检查和发送日志。
+- **关键动作等待送达**：关机/终止进程前同步等待告警确认（默认 10 秒），避免“告警还没发出去就关机”。
 - **官方平台适配器**：企业微信、飞书、钉钉、Telegram、Discord、Slack、SMTP 邮件、QQ OneBot、个人微信 iLink、Wechaty/WeChatFerry 桥，全部不依赖 AstrBot。
 - **DSH 插件**：`dsh-plugin-tempguard` 把温度查询和告警发送注册成 Agent 工具，可在 DeepSeek Harness 里直接调用。
 - **读不到不崩**：传感器缺失记为 `None`，主循环照常跑。
@@ -106,7 +107,9 @@ temguard → alertd (127.0.0.1:8765) → AstrBot → 微信/QQ/飞书/钉钉/Tel
 Invoke-RestMethod http://127.0.0.1:8765/health
 ```
 
-本机已注册四个计划任务：`AstrBot`（保留备用）、`NapCat`（QQ 协议层）、`alertd`、`temguard`。
+本机已注册四个计划任务：`AstrBot`（保留备用）、`NapCat`（QQ 协议层）、`alertd`、`temguard`。`NapCat` 使用 supervisor 自动拉起；`alertd`/`temguard` 有文件锁和失败重启。
+
+AstrBot、NapCat、alertd 都只监听 `127.0.0.1`；不要把 Dashboard/WebUI 暴露到公网。
 
 完整说明见 [docs/独立告警服务Alertd.md](docs/独立告警服务Alertd.md)。
 
@@ -216,9 +219,13 @@ time,cpu,gpu,hottest,state,reason
 | `sensors.cpu` / `sensors.gpu` | `true` | 单独关掉某个温度来源 |
 | `alertd.host` / `alertd.port` | `127.0.0.1` / 8765 | 独立告警服务监听地址 |
 | `alertd.token` | 空 | alertd 的本机鉴权 token |
-| `alertd.retry_attempts` | 3 | 发送失败重试次数 |
+| `alertd.db_file` | `logs/alerts.db` | SQLite 持久化 outbox |
+| `alertd.workers` | 2 | worker 数量，避免单个慢通道堵死优先级告警 |
+| `alertd.max_pending` | 1000 | outbox 上限 |
+| `alertd.retry_attempts` | 3 | 每个适配器独立重试次数 |
 | `alertd.adapters` | 全部关闭的模板 | 可插拔告警出口，按 `type` 选择平台 |
 | `notify.mode` | `direct` | `direct`=temguard 自己发；`alertd`=投递给独立服务 |
+| `notify.critical_wait_seconds` | 10 | 关机/终止进程前等待告警确认的秒数 |
 | `notify.alertd.enabled` | `false` | 是否启用 alertd 模式 |
 | `notify.alertd.url` | `http://127.0.0.1:8765/alert` | alertd 接收地址 |
 | `notify.print` | `true` | 打印到屏幕 |

@@ -65,20 +65,28 @@ alertd:
   host: "127.0.0.1"
   port: 8765
   token: "本机随机token"
+  db_file: logs/alerts.db
   log_file: logs/alerts.jsonl
+  max_pending: 1000
+  workers: 2
+  wait_default_seconds: 10
   retry_attempts: 3
   retry_backoff_seconds: 2
 ```
 
 - 只监听 `127.0.0.1`，不要暴露公网；
 - `token` 可选，但建议设置；temguard 必须带同样的 token；
-- `retry_attempts` / `retry_backoff_seconds` 控制失败重试。
+- 告警先写入 SQLite `outbox`，进程重启不丢 pending；
+- `workers` ≥ 2，TRIP 可以绕过正在发送的慢通道；
+- `max_pending` 控制磁盘/内存上限；
+- `retry_attempts` / `retry_backoff_seconds` 是每个适配器独立重试。
 
 ### 2.2 temguard 侧
 
 ```yaml
 notify:
   mode: alertd
+  critical_wait_seconds: 10
   alertd:
     enabled: true
     url: "http://127.0.0.1:8765/alert"
@@ -135,20 +143,37 @@ X-Alert-Token: 本机token
 {
   "level": "TRIP",
   "message": "CPU 96.0°C 连续 3 次 ≥ 95°C",
-  "source": "temguard"
+  "source": "temguard",
+  "wait": true,
+  "timeout_seconds": 10
 }
 ```
 
-返回：
+普通告警返回 202：
 
 ```json
-{"status":"accepted"}
+{"status":"accepted","id":42}
+```
+
+`wait: true` 时返回 200，并等待真实投递结果：
+
+```json
+{
+  "id": 42,
+  "status": "delivered",
+  "ok": true,
+  "results": [
+    {"name":"qq-onebot","type":"qq_onebot","ok":true,"attempts":1}
+  ]
+}
 ```
 
 - `level`：`INFO` / `WARN` / `TRIP`；
 - `source`：来源标识，默认 `temguard`；
-- alertd 立即返回 202，实际发送由后台 worker 完成；
-- 队列满时返回 503。
+- `wait`：关键告警使用；等待至少一个出口确认，超时返回 `accepted`；
+- 队列满/outbox 满返回 503。
+
+temguard 的关机/终止进程动作会使用 `notify.critical_wait_seconds` 调用 `wait: true`，避免“告警还没发出就关机”。
 
 ### 健康检查
 
@@ -156,7 +181,7 @@ X-Alert-Token: 本机token
 GET /health
 ```
 
-返回队列长度和当前启用的出口。
+返回 `pending`、`outbox` 各状态计数、`channels`、`adapters` 和最近失败（`failures`）。
 
 ---
 
@@ -183,13 +208,16 @@ logs/alerts.jsonl
 
 ## 5. 开机自启
 
-本机已注册三个计划任务：
+本机已注册四个计划任务：
 
 ```text
-AstrBot   → 登录时启动（协议层）
+AstrBot   → 登录时启动（保留备用，绑定 127.0.0.1）
+NapCat    → 登录时启动（QQ 协议层，supervisor 自动拉起）
 alertd    → 登录时启动（独立告警服务）
 temguard  → 登录时启动（温度监控）
 ```
+
+`alertd` 和 `temguard` 都用文件锁保证单实例；任务失败会自动重启。
 
 查看状态：
 

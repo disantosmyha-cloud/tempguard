@@ -89,6 +89,8 @@ class Fuse:
         self,
         thresholds: Optional[dict] = None,
         safety: Optional[dict] = None,
+        *,
+        cold_boot: bool = True,
     ):
         cfg = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
         self.warning_c = float(cfg["warning_c"])
@@ -99,8 +101,14 @@ class Fuse:
         self.shutdown_samples = max(1, int(cfg["shutdown_samples"]))
 
         safe = {**DEFAULT_SAFETY, **(safety or {})}
+        self.cold_boot = bool(cold_boot)
         self.startup_grace_seconds = max(0.0, float(safe["startup_grace_seconds"]))
         self.require_cool_baseline = bool(safe["require_cool_baseline"])
+        # 同一 Windows 启动周期内的进程重启，不再享受“开机假高温”保护。
+        # 否则真实过热时重启 temguard 就能把动作推迟 180 秒。
+        if not self.cold_boot:
+            self.startup_grace_seconds = 0.0
+            self.require_cool_baseline = False
 
         self._terminate_since: Optional[float] = None
         self._shutdown_streak = 0

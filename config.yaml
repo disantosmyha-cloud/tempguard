@@ -36,7 +36,11 @@ alertd:
   host: "127.0.0.1"            # 只监听本机
   port: 8765
   token: ""                    # 本机可选鉴权；只填 config.local.yaml
+  db_file: logs/alerts.db      # 持久化 outbox
   log_file: logs/alerts.jsonl
+  max_pending: 1000
+  workers: 2
+  wait_default_seconds: 10
   retry_attempts: 3
   retry_backoff_seconds: 2
 
@@ -127,6 +131,7 @@ alertd:
 notify:
   print: true                  # 打印到屏幕
   mode: direct                 # direct=temguard 自己发；alertd=投递给独立告警服务
+  critical_wait_seconds: 10    # 关机/终止进程前，等待告警确认送达的最长秒数
 
   # 独立告警服务 alertd：temguard 只 POST 到这里
   alertd:

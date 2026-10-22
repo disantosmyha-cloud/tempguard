@@ -2,6 +2,10 @@
 logs/*.csv
 logs/*.log
 logs/*.jsonl
+logs/*.json
+logs/*.db
+logs/*.db-*
+logs/*.lock
 !logs/.gitkeep
 runtime/
 dsh-plugin-tempguard/node_modules/

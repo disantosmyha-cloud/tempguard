@@ -264,21 +264,39 @@ def _alertd_config(cfg: dict) -> Tuple[bool, str, str, float]:
     return enabled, url, token, timeout
 
 
-def _push_alertd(url: str, token: str, level: str, message: str, stamp: str, timeout: float) -> bool:
+def _push_alertd(
+    url: str,
+    token: str,
+    level: str,
+    message: str,
+    stamp: str,
+    timeout: float,
+    *,
+    wait: bool = False,
+    wait_timeout: Optional[float] = None,
+) -> bool:
     payload = {
         "level": level,
         "message": message,
         "timestamp": stamp,
         "source": "temguard",
     }
+    if wait:
+        payload["wait"] = True
+        payload["timeout_seconds"] = wait_timeout or timeout
     try:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         if token:
             headers["X-Alert-Token"] = token
         request = urllib.request.Request(url, data=body, method="POST", headers=headers)
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return 200 <= response.status < 300
+        with urllib.request.urlopen(request, timeout=timeout + (wait_timeout or 0)) as response:
+            if not 200 <= response.status < 300:
+                return False
+            if not wait:
+                return True
+            result = json.loads(response.read().decode("utf-8", "replace"))
+            return result.get("status") == "delivered"
     except Exception:
         return False
 
@@ -337,6 +355,39 @@ def notify(level: str, message: str, config: Optional[dict] = None) -> bool:
         ) or sent
 
     return _async_send(send_direct, config, level, message, False) or sent
+
+
+def notify_blocking(
+    level: str,
+    message: str,
+    config: Optional[dict] = None,
+    timeout: float = 10.0,
+) -> bool:
+    """关键动作专用：同步等待至少一个通道确认送达。
+
+    用于关机/终止进程之前。alertd 明确返回 delivered 才算成功；
+    超时或失败返回 False，调用方必须记录并决定是否继续安全动作。
+    """
+    stamp = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cfg = (config or {}).get("notify") or {}
+    text = _message_text(level, message, stamp)
+    if cfg.get("print", True):
+        _safe_print(text)
+
+    enabled, url, token, req_timeout = _alertd_config(cfg)
+    if enabled:
+        return _push_alertd(
+            url,
+            token,
+            level,
+            message,
+            stamp,
+            max(req_timeout, timeout + 2),
+            wait=True,
+            wait_timeout=timeout,
+        )
+
+    return send_direct(config, level, message, False)
 
 
 def send_test(config: Optional[dict] = None) -> bool:
