@@ -13,6 +13,11 @@ thresholds:
   terminate_seconds: 1200      # 20 分钟
   shutdown_samples: 3          # 连续 3 次
 
+safety:
+  # 开机/刚启动时的传感器可能报出假高温（例如 100°C+），不能据此关机。
+  startup_grace_seconds: 180   # 启动后 180 秒内只警告，不终止/关机
+  require_cool_baseline: true  # 必须先读到一次低于 warning_c 的正常温度，才允许动作
+
 actions:
   dry_run: true                # 公开版默认演习；本机真实参数放 config.local.yaml
   terminate_processes:         # 熔断时要终止的进程名，不区分大小写

@@ -261,7 +261,10 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
     if not log_path.is_absolute():
         log_path = ROOT / log_path
 
-    fuse = fuse_mod.Fuse(config.get("thresholds"))
+    fuse = fuse_mod.Fuse(
+        config.get("thresholds"),
+        safety=config.get("safety"),
+    )
     sensors_cfg = config.get("sensors") or {}
 
     actions = dict(config.get("actions") or {})
@@ -277,6 +280,7 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
         f"警告线 {fuse.warning_c:.0f}°C，"
         f"连续 {_duration_text(fuse.terminate_seconds)} ≥ {fuse.terminate_c:.0f}°C 终止进程，"
         f"连续 {fuse.shutdown_samples} 次 ≥ {fuse.shutdown_c:.0f}°C 关机；"
+        f"启动保护 {fuse.startup_grace_seconds:.0f}s；"
         f"{'演习模式（不真动手）' if dry else '真实模式'}",
         config,
     )

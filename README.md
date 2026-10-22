@@ -9,6 +9,8 @@
 连续 20 分钟 ≥ 93°C            → 终止进程
 连续 3 次 ≥ 95°C               → 关机
 温度 < 88°C                    → 恢复正常，所有计时/计数清零
+
+启动后 180 秒内、且还没读到正常温度前：只警告，不终止、不关机
 ```
 
 > **公开仓库的 `config.yaml` 默认是演习模式（`dry_run: true`）**。本机如果存在 `config.local.yaml`，`main.py` 会优先读取它；当前本机的真实模式参数就在这个文件里，而它已被 `.gitignore` 忽略，不会上传。
@@ -21,6 +23,7 @@
 
 - **四态清晰**：`safe` / `warning` / `terminate` / `shutdown`，主循环按状态动作。
 - **只认连续**：瞬时峰值只到警告，掉回阈值以下计时/计数立即重来。
+- **开机保护**：启动后 180 秒内、且未读到正常温度前，即使传感器报 100°C+ 也只警告，不会直接关机。
 - **演习模式**：所有危险动作都可以先空跑。
 - **读不到不崩**：传感器缺失记为 `None`，主循环照常跑。
 - **单轮错误保护**：采样、写日志、发通知哪一步出错，打印后继续下一轮。
@@ -106,6 +109,8 @@ time,cpu,gpu,hottest,state,reason
 | `thresholds.shutdown_c` | 95 | 关机温度线 |
 | `thresholds.shutdown_samples` | 3 | 连续多少次 ≥ `shutdown_c` 才关机 |
 | `thresholds.reset_c` | 88 | 低于此温度算恢复正常，计时/计数清零 |
+| `safety.startup_grace_seconds` | 180 | 启动后多少秒内只警告、不终止/关机 |
+| `safety.require_cool_baseline` | `true` | 是否必须先读到一次正常温度才允许动作 |
 | `actions.dry_run` | `true` | 公开默认演习；本机 `config.local.yaml` 里是 `false`（真实模式） |
 | `actions.terminate_processes` | `[blender.exe, python.exe]` | 要终止的进程名，不区分大小写 |
 | `actions.shutdown_delay_seconds` | 60 | 真关机时留给你的取消时间；取消命令 `shutdown /a` |
@@ -123,6 +128,15 @@ time,cpu,gpu,hottest,state,reason
 | `shutdown` | 连续 `shutdown_samples` 次 ≥ `shutdown_c` | 演习：打印“本该关机”；真模式：`shutdown /s /t 延迟` |
 
 一个都读不到温度时按 `warning` 处理，但不会基于旧数据继续累计计时。
+
+### 开机保护
+
+LHM/驱动刚启动时，传感器偶尔会报出 100°C+ 的假高温。直接按这个温度关机显然不科学，所以 fuse 有两道保护：
+
+1. **启动保护期**：程序启动后 `startup_grace_seconds`（默认 180 秒）内，只警告，不终止、不关机；
+2. **正常温度基线**：必须先读到一次低于 `warning_c` 的温度，才允许执行动作。如果开机后一直只读到异常高温，就一直只警告。
+
+保护期结束时，保护期内累计的高温次数/时长会清零，不会“带着开机那几分钟的假数据”立刻关机。
 
 ## 传感器支持
 
