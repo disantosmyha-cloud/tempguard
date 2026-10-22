@@ -44,7 +44,14 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 正常返回：
 
 ```json
-{"status":"ok","queue":0,"channels":["astrbot"]}
+{
+  "status": "ok",
+  "queue": 0,
+  "channels": ["wecom-group", "feishu", "email"],
+  "adapters": [
+    {"name": "wecom-group", "type": "wecom", "enabled": true, "last_error": ""}
+  ]
+}
 ```
 
 ---
@@ -86,13 +93,33 @@ notify:
 
 ### 2.3 告警出口
 
-出口仍然使用 `notify` 下的配置，alertd 会读取：
+出口在 `alertd.adapters` 里配置，每个适配器独立开关：
 
-- `notify.astrbot`：AstrBot Open API，推荐用于个人微信/QQ/飞书/钉钉等；
-- `notify.wechat`：企业微信群机器人直连；
-- `notify.email`：SMTP 邮件。
+```yaml
+alertd:
+  adapters:
+    - name: wecom-group
+      type: wecom
+      enabled: true
+      webhook: "..."
+```
 
-具体字段见 [AstrBot 告警接入](AstrBot告警接入.md) 和 [微信机器人接入](微信机器人接入.md)。
+支持的 `type`：
+
+```text
+wecom / feishu / dingtalk / telegram / discord / slack / email
+qq_onebot / wechat_ilink / wechat_hook / astrbot
+```
+
+每个平台的字段、限制和示例见 [告警适配器](告警适配器.md)。
+
+兼容旧配置：
+
+- `notify.astrbot` → 自动变成 `astrbot-legacy`
+- `notify.wechat` → 自动变成 `wecom-legacy`
+- `notify.email` → 自动变成 `email-legacy`
+
+如果 `alertd.adapters` 里显式启用了同类型适配器，旧配置不会重复加载。
 
 ---
 
@@ -142,11 +169,12 @@ logs/alerts.jsonl
 每行一条 JSON：
 
 ```json
-{"time":"2026-10-22 21:29:41","level":"INFO","source":"temguard","message":"temguard 启动...","ok":true,"attempts":1}
+{"time":"2026-10-22 21:29:41","level":"INFO","source":"temguard","message":"temguard 启动...","ok":true,"attempts":1,"results":[{"name":"wecom-group","type":"wecom","ok":true,"attempts":1,"error":""}]}
 ```
 
 - `ok`：是否至少有一个出口发送成功；
-- `attempts`：尝试次数；
+- `attempts`：所有适配器里最大的尝试次数；
+- `results`：每个适配器的结果和最近错误；
 - 文件超过 5MB 会自动轮转为 `alerts.jsonl.1`。
 
 `logs/*.jsonl` 已被 `.gitignore` 忽略，不会上传 GitHub。

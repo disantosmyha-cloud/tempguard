@@ -40,6 +40,90 @@ alertd:
   retry_attempts: 3
   retry_backoff_seconds: 2
 
+  # 可插拔适配器；全部不依赖 AstrBot（AstrBot 只是其中一个可选适配器）
+  adapters:
+    - name: wecom-group
+      type: wecom
+      enabled: false
+      webhook: ""
+      mentioned_list: []
+      mentioned_mobile_list: []
+      timeout_seconds: 5
+
+    - name: feishu
+      type: feishu
+      enabled: false
+      webhook: ""
+      secret: ""
+      timeout_seconds: 5
+
+    - name: dingtalk
+      type: dingtalk
+      enabled: false
+      webhook: ""
+      secret: ""
+      timeout_seconds: 5
+
+    - name: telegram
+      type: telegram
+      enabled: false
+      bot_token: ""
+      chat_id: ""
+      api_base: "https://api.telegram.org"
+      timeout_seconds: 5
+
+    - name: discord
+      type: discord
+      enabled: false
+      webhook: ""
+      username: "temguard"
+      timeout_seconds: 5
+
+    - name: slack
+      type: slack
+      enabled: false
+      webhook: ""
+      channel: ""
+      timeout_seconds: 5
+
+    - name: email
+      type: email
+      enabled: false
+      smtp_host: ""
+      smtp_port: 465
+      use_ssl: true
+      starttls: false
+      username: ""
+      password: ""
+      from_addr: ""
+      to_addrs: []
+      timeout_seconds: 10
+
+    - name: qq-onebot
+      type: qq_onebot
+      enabled: false
+      base_url: "http://127.0.0.1:3000"
+      access_token: ""
+      target_type: "group"      # group 或 private
+      target_id: ""
+      timeout_seconds: 5
+
+    - name: personal-wechat-ilink
+      type: wechat_ilink
+      enabled: false
+      base_url: "https://ilinkai.weixin.qq.com"
+      bot_token: ""
+      to_user_id: ""
+      context_token: ""
+      timeout_seconds: 15
+
+    - name: wechat-bridge
+      type: wechat_hook
+      enabled: false
+      url: "http://127.0.0.1:8080/send"
+      token: ""
+      timeout_seconds: 5
+
 notify:
   print: true                  # 打印到屏幕
   mode: direct                 # direct=temguard 自己发；alertd=投递给独立告警服务

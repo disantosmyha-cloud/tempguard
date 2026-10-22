@@ -25,14 +25,13 @@ import datetime as dt
 import json
 import queue
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
 
 import yaml
 
-from core import notify as notify_mod
+from adapters import AdapterManager, Alert, build_adapters
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_HOST = "127.0.0.1"
@@ -60,6 +59,11 @@ class AlertService:
         self.token = str(cfg.get("token") or "").strip()
         self.retry_attempts = max(1, int(cfg.get("retry_attempts", 3)))
         self.retry_backoff = max(0.0, float(cfg.get("retry_backoff_seconds", 2)))
+        self.adapter_manager = AdapterManager(
+            build_adapters(config),
+            retry_attempts=self.retry_attempts,
+            retry_backoff=self.retry_backoff,
+        )
         self.queue: "queue.Queue[Optional[tuple]]" = queue.Queue(maxsize=200)
         self.log_path = Path(cfg.get("log_file") or "logs/alerts.jsonl")
         if not self.log_path.is_absolute():
@@ -79,16 +83,7 @@ class AlertService:
         self.queue.put_nowait((level, message, source))
 
     def channels(self) -> list:
-        cfg = self.config.get("notify") or {}
-        names = []
-        astrbot = cfg.get("astrbot") or {}
-        if astrbot.get("enabled") and astrbot.get("api_key") and astrbot.get("umos"):
-            names.append("astrbot")
-        if ((cfg.get("wechat") or {}).get("webhook") or (cfg.get("phone") or {}).get("webhook")):
-            names.append("wechat")
-        if (cfg.get("email") or {}).get("enabled") and (cfg.get("email") or {}).get("to_addrs"):
-            names.append("email")
-        return names
+        return self.adapter_manager.channels()
 
     def _run_worker(self) -> None:
         while True:
@@ -97,25 +92,36 @@ class AlertService:
                 self.queue.task_done()
                 return
             level, message, source = item
-            ok = False
-            attempts = 0
-            for attempts in range(1, self.retry_attempts + 1):
-                try:
-                    ok = notify_mod.send_direct(self.config, level, message, False)
-                except Exception:
-                    ok = False
-                if ok:
-                    break
-                if attempts < self.retry_attempts:
-                    time.sleep(self.retry_backoff * attempts)
+            alert = Alert(
+                level=level,
+                message=message,
+                timestamp=dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                source=source,
+            )
+            try:
+                results = self.adapter_manager.send(alert)
+            except Exception as exc:
+                results = [
+                    {
+                        "name": "manager",
+                        "type": "manager",
+                        "ok": False,
+                        "attempts": 0,
+                        "error": str(exc)[:300],
+                    }
+                ]
             self._append_log(
                 {
-                    "time": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "time": alert.timestamp,
                     "level": level,
                     "source": source,
                     "message": message,
-                    "ok": ok,
-                    "attempts": attempts,
+                    "ok": any(item.get("ok") for item in results),
+                    "attempts": max(
+                        (int(item.get("attempts") or 0) for item in results),
+                        default=0,
+                    ),
+                    "results": results,
                 }
             )
             self.queue.task_done()
@@ -171,6 +177,7 @@ def _make_handler(service: AlertService):
                     "status": "ok",
                     "queue": service.queue.qsize(),
                     "channels": service.channels(),
+                    "adapters": service.adapter_manager.health(),
                 },
             )
 

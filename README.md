@@ -26,7 +26,8 @@
 - **开机保护**：启动后 180 秒内、且未读到正常温度前，即使传感器报 100°C+ 也只警告，不会直接关机。
 - **演习模式**：所有危险动作都可以先空跑。
 - **多平台告警**：通过 AstrBot Open API 转发到微信/QQ/飞书/钉钉/Telegram/Discord/Slack；也支持企业微信直连和 SMTP 邮件。
-- **独立告警服务**：temguard → alertd → AstrBot/企业微信/邮件，带队列、重试、健康检查和发送日志；告警通道故障不拖慢监控。
+- **独立告警服务**：temguard → alertd → 可插拔适配器，带队列、重试、健康检查和发送日志；告警通道故障不拖慢监控。
+- **官方平台适配器**：企业微信、飞书、钉钉、Telegram、Discord、Slack、SMTP 邮件、QQ OneBot、个人微信 iLink、Wechaty/WeChatFerry 桥，全部不依赖 AstrBot。
 - **读不到不崩**：传感器缺失记为 `None`，主循环照常跑。
 - **单轮错误保护**：采样、写日志、发通知哪一步出错，打印后继续下一轮。
 - **日志即证据**：每次采样一行 CSV，事后能回看温度、状态和原因。
@@ -107,6 +108,17 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 本机已注册三个计划任务：`AstrBot`、`alertd`、`temguard`。
 
 完整说明见 [docs/独立告警服务Alertd.md](docs/独立告警服务Alertd.md)。
+
+### 可插拔适配器
+
+`alertd.adapters` 里按类型配置，全部独立开关：
+
+```text
+wecom / feishu / dingtalk / telegram / discord / slack / email
+qq_onebot / wechat_ilink / wechat_hook / astrbot
+```
+
+每个平台的配置示例、加签方式和个人微信 iLink 的上下文限制见 [docs/告警适配器.md](docs/告警适配器.md)。
 
 ### 测试所有告警通道
 
@@ -195,6 +207,7 @@ time,cpu,gpu,hottest,state,reason
 | `alertd.host` / `alertd.port` | `127.0.0.1` / 8765 | 独立告警服务监听地址 |
 | `alertd.token` | 空 | alertd 的本机鉴权 token |
 | `alertd.retry_attempts` | 3 | 发送失败重试次数 |
+| `alertd.adapters` | 全部关闭的模板 | 可插拔告警出口，按 `type` 选择平台 |
 | `notify.mode` | `direct` | `direct`=temguard 自己发；`alertd`=投递给独立服务 |
 | `notify.alertd.enabled` | `false` | 是否启用 alertd 模式 |
 | `notify.alertd.url` | `http://127.0.0.1:8765/alert` | alertd 接收地址 |
@@ -246,7 +259,8 @@ Windows 上要让 CPU 温度可读，必须让 LibreHardwareMonitor 以管理员
 
 - [x] 企业微信群机器人告警（见 [docs/微信机器人接入.md](docs/微信机器人接入.md)）
 - [x] AstrBot 多平台告警：微信/QQ/飞书/钉钉/Telegram/Discord 等（见 [docs/AstrBot告警接入.md](docs/AstrBot告警接入.md)）
-- [x] SMTP 邮件告警
+- [x] 独立 alertd + 可插拔适配器：企业微信/飞书/钉钉/Telegram/Discord/Slack/邮件/QQ OneBot/微信桥（见 [docs/告警适配器.md](docs/告警适配器.md)）
+- [x] 个人微信 iLink clean-room 客户端（实验性，受 context_token 限制）
 - [ ] 温度曲线图（读 `logs/temps.csv` 画个 SVG）
 - [ ] 触发后自动降频而不是终止进程
 
