@@ -65,7 +65,25 @@ python core\sensors.py       # 单独检查 CPU/GPU 温度
 python core\fuse.py          # 看四态熔断的假数据演示
 python main.py --once        # 只检查一次，确认配置和传感器
 python main.py --dry-run     # 强制演习模式跑循环
-python main.py               # 正常跑，Ctrl+C 停
+python main.py               # 正常跑，Ctrl+C 停（会打开黑窗口）
+```
+
+### 后台运行（无黑窗口）
+
+`python main.py` 是前台运行，关掉控制台就会停止。想挂机又不想留着黑窗口，可以用 `pythonw.exe` 或计划任务后台运行；本机已经创建了 `temguard` 计划任务，登录时自动启动，无控制台窗口。
+
+查看是否在跑：
+
+```powershell
+Get-Process pythonw
+Get-Content logs/temps.csv -Tail 5
+```
+
+停止/启动后台任务：
+
+```powershell
+Stop-ScheduledTask -TaskName temguard
+Start-ScheduledTask -TaskName temguard
 ```
 
 启动后会看到：
