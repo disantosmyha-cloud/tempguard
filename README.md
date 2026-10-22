@@ -204,6 +204,7 @@ time,cpu,gpu,hottest,state,reason
 |---|---|---|
 | `sample.interval_seconds` | 5 | 检查间隔（秒） |
 | `sample.log_file` | `logs/temps.csv` | 温度日志路径 |
+| `sample.max_log_bytes` | 20MB | CSV 超过后自动轮转 |
 | `thresholds.warning_c` | 90 | 进入“警告”的温度线（°C） |
 | `thresholds.terminate_c` | 93 | 连续达到这个温度才可能终止进程 |
 | `thresholds.terminate_seconds` | 1200 | 连续 ≥ `terminate_c` 多少秒才终止（20 分钟） |
@@ -222,6 +223,8 @@ time,cpu,gpu,hottest,state,reason
 | `alertd.db_file` | `logs/alerts.db` | SQLite 持久化 outbox |
 | `alertd.workers` | 2 | worker 数量，避免单个慢通道堵死优先级告警 |
 | `alertd.max_pending` | 1000 | outbox 上限 |
+| `alertd.retention_days` | 30 | 已投递/失败记录保留天数 |
+| `alertd.max_history` | 10000 | 最多保留多少条历史记录 |
 | `alertd.retry_attempts` | 3 | 每个适配器独立重试次数 |
 | `alertd.adapters` | 全部关闭的模板 | 可插拔告警出口，按 `type` 选择平台 |
 | `notify.mode` | `direct` | `direct`=temguard 自己发；`alertd`=投递给独立服务 |

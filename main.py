@@ -49,10 +49,20 @@ def _default_config_path() -> Path:
     return local if local.exists() else ROOT / "config.yaml"
 
 
-def _open_log(path: Path):
-    """追加打开 CSV；新文件写表头，旧表头不匹配则改名备份。"""
+def _open_log(path: Path, max_bytes: int = 20 * 1024 * 1024):
+    """追加打开 CSV；超大文件/旧表头会自动改名备份。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     fresh = not path.exists() or path.stat().st_size == 0
+
+    if not fresh and path.stat().st_size > max(1024 * 1024, int(max_bytes)):
+        backup = path.with_name(
+            f"{path.stem}.{dt.datetime.now():%Y%m%d-%H%M%S}{path.suffix}"
+        )
+        try:
+            path.replace(backup)
+            fresh = True
+        except Exception:
+            pass
 
     if not fresh:
         try:
@@ -336,6 +346,7 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
     log_path = Path(sample_cfg.get("log_file") or "logs/temps.csv")
     if not log_path.is_absolute():
         log_path = ROOT / log_path
+    max_log_bytes = int(sample_cfg.get("max_log_bytes", 20 * 1024 * 1024))
 
     cold_boot = _cold_boot()
     fuse = fuse_mod.Fuse(
@@ -387,7 +398,7 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
     )
 
     try:
-        fh, writer = _open_log(log_path)
+        fh, writer = _open_log(log_path, max_log_bytes)
     except Exception as exc:
         notify_mod.notify("WARN", f"无法打开日志文件 {log_path}：{exc}，已停止", config)
         return 1

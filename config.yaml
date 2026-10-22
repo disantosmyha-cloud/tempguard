@@ -3,6 +3,7 @@
 sample:
   interval_seconds: 5          # 每隔多少秒检查一次
   log_file: logs/temps.csv     # 温度日志路径（会自动建表头）
+  max_log_bytes: 20971520      # CSV 超过 20MB 自动轮转
 
 thresholds:
   # 所有温度阈值单位都是 °C，取 CPU/GPU 中最热的那个来判断。
@@ -41,6 +42,8 @@ alertd:
   max_pending: 1000
   workers: 2
   wait_default_seconds: 10
+  retention_days: 30
+  max_history: 10000
   retry_attempts: 3
   retry_backoff_seconds: 2
 

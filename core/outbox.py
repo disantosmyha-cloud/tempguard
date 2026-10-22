@@ -157,6 +157,21 @@ class Outbox:
             )
             self._db.commit()
 
+    def prune(self, retention_days: int = 30, max_history: int = 10000) -> int:
+        """清理旧的已投递/失败记录，避免 SQLite 无限增长。"""
+        cutoff = time.time() - max(1, int(retention_days)) * 86400
+        with self._lock:
+            cur = self._db.execute(
+                "DELETE FROM outbox WHERE status IN ('delivered','failed') "
+                "AND (COALESCE(delivered_at, created_at) < ? "
+                "OR id NOT IN (SELECT id FROM outbox "
+                "WHERE status IN ('delivered','failed') "
+                "ORDER BY id DESC LIMIT ?))",
+                (cutoff, max(1, int(max_history))),
+            )
+            self._db.commit()
+            return cur.rowcount
+
     def requeue_failed(self, item_id: int) -> bool:
         with self._lock:
             cur = self._db.execute(

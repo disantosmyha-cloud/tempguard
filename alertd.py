@@ -77,6 +77,10 @@ class AlertService:
             db_file,
             max_pending=int(cfg.get("max_pending", 1000)),
         )
+        self.outbox.prune(
+            retention_days=int(cfg.get("retention_days", 30)),
+            max_history=int(cfg.get("max_history", 10000)),
+        )
         self.log_path = Path(cfg.get("log_file") or "logs/alerts.jsonl")
         if not self.log_path.is_absolute():
             self.log_path = ROOT / self.log_path

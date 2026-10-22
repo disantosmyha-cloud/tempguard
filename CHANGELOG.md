@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.1 — 失败告警重试
+
+- `POST /retry` 将 `failed` 告警重新放回 outbox。
+- 健康检查继续暴露最近失败，便于通道恢复后补发。
+
 ## v1.3.0 — 可靠性硬化
 
 - alertd 使用 SQLite 持久化 outbox；进程重启不丢 pending 告警。
