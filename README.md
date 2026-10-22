@@ -25,7 +25,7 @@
 - **只认连续**：瞬时峰值只到警告，掉回阈值以下计时/计数立即重来。
 - **开机保护**：启动后 180 秒内、且未读到正常温度前，即使传感器报 100°C+ 也只警告，不会直接关机。
 - **演习模式**：所有危险动作都可以先空跑。
-- **微信机器人告警**：企业微信群机器人 Webhook，状态变化时推送；后台线程发送，不阻塞监控。
+- **多平台告警**：通过 AstrBot Open API 转发到微信/QQ/飞书/钉钉/Telegram/Discord/Slack；也支持企业微信直连和 SMTP 邮件。后台线程发送，不阻塞监控。
 - **读不到不崩**：传感器缺失记为 `None`，主循环照常跑。
 - **单轮错误保护**：采样、写日志、发通知哪一步出错，打印后继续下一轮。
 - **日志即证据**：每次采样一行 CSV，事后能回看温度、状态和原因。
@@ -69,11 +69,31 @@ python main.py --dry-run     # 强制演习模式跑循环
 python main.py               # 正常跑，Ctrl+C 停（会打开黑窗口）
 ```
 
-### 微信机器人告警
+### 多平台告警（AstrBot）
 
-1. 企业微信群 → 群设置 → 群机器人 → 添加机器人；
-2. 复制 Webhook；
-3. 填到 `config.local.yaml`：
+AstrBot 已经接好的微信/QQ/飞书/钉钉/Telegram/Discord/Slack 等平台，都可以作为 tempguard 的告警出口：
+
+```yaml
+notify:
+  astrbot:
+    enabled: true
+    base_url: "http://127.0.0.1:6185"
+    api_key: "abk_你的key"        # 只填 config.local.yaml
+    umos:
+      - "weixin_personal_mrhg:FriendMessage:o9cq...@im.wechat"
+      - "qq_main:GroupMessage:123456789"
+    timeout_seconds: 5
+```
+
+测试所有已配置通道：
+
+```powershell
+python main.py --test-notify
+```
+
+完整说明见 [docs/AstrBot告警接入.md](docs/AstrBot告警接入.md)，包括怎么找 QQ/飞书/钉钉/Telegram 的 UMO、怎么接 SMTP 邮件，以及怎么保护 AstrBot 不被熔断误杀。
+
+如果不想经过 AstrBot，也可以直接用企业微信群机器人：
 
 ```yaml
 notify:
@@ -81,13 +101,7 @@ notify:
     webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key"
 ```
 
-4. 测试：
-
-```powershell
-python main.py --test-wechat
-```
-
-完整步骤、@ 人、错误码和密钥安全说明见 [docs/微信机器人接入.md](docs/微信机器人接入.md)。公开的 `config.yaml` 里 Webhook 保持空字符串，不要提交密钥。
+见 [docs/微信机器人接入.md](docs/微信机器人接入.md)。公开的 `config.yaml` 里 API key、Webhook、邮箱密码全部保持空字符串。
 
 ### 后台运行（无黑窗口）
 
@@ -153,8 +167,18 @@ time,cpu,gpu,hottest,state,reason
 | `actions.dry_run` | `true` | 公开默认演习；本机 `config.local.yaml` 里是 `false`（真实模式） |
 | `actions.terminate_processes` | `[blender.exe, python.exe]` | 要终止的进程名，不区分大小写 |
 | `actions.shutdown_delay_seconds` | 60 | 真关机时留给你的取消时间；取消命令 `shutdown /a` |
+| `actions.protect_keywords` | `[astrbot]` | 命令行包含这些词的进程不会被终止，保护告警机器人 |
 | `sensors.cpu` / `sensors.gpu` | `true` | 单独关掉某个温度来源 |
 | `notify.print` | `true` | 打印到屏幕 |
+| `notify.astrbot.enabled` | `false` | 是否通过 AstrBot 转发 |
+| `notify.astrbot.base_url` | `http://127.0.0.1:6185` | AstrBot Dashboard 地址 |
+| `notify.astrbot.api_key` | 空 | AstrBot Open API Key；只填 `config.local.yaml` |
+| `notify.astrbot.umos` | `[]` | 目标会话列表，可同时写微信/QQ/飞书/钉钉等 |
+| `notify.astrbot.timeout_seconds` | 5 | AstrBot 请求超时 |
+| `notify.email.enabled` | `false` | 是否发 SMTP 邮件 |
+| `notify.email.smtp_host` / `smtp_port` | 空 / 465 | 邮件服务器 |
+| `notify.email.username` / `password` | 空 | 邮箱账号 / 授权码，只填本地配置 |
+| `notify.email.from_addr` / `to_addrs` | 空 / `[]` | 发件人 / 收件人列表 |
 | `notify.wechat.webhook` | 空 | 企业微信群机器人 Webhook；只填 `config.local.yaml` |
 | `notify.wechat.mentioned_list` | `[]` | 可选 @ 人，例如 `["@all"]` |
 | `notify.wechat.mentioned_mobile_list` | `[]` | 可选 @ 手机号 |
@@ -192,6 +216,8 @@ Windows 上要让 CPU 温度可读，必须让 LibreHardwareMonitor 以管理员
 ## 路线图
 
 - [x] 企业微信群机器人告警（见 [docs/微信机器人接入.md](docs/微信机器人接入.md)）
+- [x] AstrBot 多平台告警：微信/QQ/飞书/钉钉/Telegram/Discord 等（见 [docs/AstrBot告警接入.md](docs/AstrBot告警接入.md)）
+- [x] SMTP 邮件告警
 - [ ] 温度曲线图（读 `logs/temps.csv` 画个 SVG）
 - [ ] 触发后自动降频而不是终止进程
 

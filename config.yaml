@@ -24,6 +24,8 @@ actions:
     - blender.exe
     - python.exe
   shutdown_delay_seconds: 60   # 真关机时留给你的取消时间；取消命令：shutdown /a
+  protect_keywords:            # 命令行包含这些词的进程不终止（保护 AstrBot）
+    - astrbot
 
 sensors:
   cpu: true                    # 关掉后不再读 CPU 温度
@@ -31,8 +33,31 @@ sensors:
 
 notify:
   print: true                  # 打印到屏幕
+
+  # AstrBot Open API：把告警交给 AstrBot，由它路由到已接好的微信/QQ/飞书/钉钉等
+  astrbot:
+    enabled: false
+    base_url: "http://127.0.0.1:6185"
+    api_key: ""                # 只填在 config.local.yaml
+    umos: []                   # 目标会话，格式 platform_id:消息类型:session_id
+    timeout_seconds: 5
+
+  # 企业微信群机器人：不经过 AstrBot 的备用直连通道
   wechat:
     webhook: ""                # 企业微信群机器人 webhook；只填在 config.local.yaml
     mentioned_list: []         # 例如 ["@all"] 或 ["zhangsan"]
     mentioned_mobile_list: []  # 例如 ["13800138000"]
     timeout_seconds: 5         # 微信请求超时时间（秒）
+
+  # 邮件：AstrBot 不负责邮件，这里走 SMTP
+  email:
+    enabled: false
+    smtp_host: ""              # 例如 smtp.qq.com
+    smtp_port: 465
+    use_ssl: true
+    starttls: false            # 用 587 端口时通常设为 true
+    username: ""
+    password: ""               # 授权码，只填在 config.local.yaml
+    from_addr: ""
+    to_addrs: []               # 例如 ["you@example.com"]
+    timeout_seconds: 10

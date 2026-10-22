@@ -91,7 +91,10 @@ def _protected_pids() -> set:
     return protected
 
 
-def _find_processes(names: List[str]) -> List[Tuple[str, int]]:
+def _find_processes(
+    names: List[str],
+    protect_keywords: Optional[List[str]] = None,
+) -> List[Tuple[str, int]]:
     targets = {
         str(name).strip().lower()
         for name in (names or [])
@@ -100,15 +103,23 @@ def _find_processes(names: List[str]) -> List[Tuple[str, int]]:
     if not targets or psutil is None:
         return []
 
+    keywords = [
+        str(word).strip().lower()
+        for word in (protect_keywords or [])
+        if str(word).strip()
+    ]
     protected = _protected_pids()
     matches: List[Tuple[str, int]] = []
     try:
-        for proc in psutil.process_iter(["pid", "name"]):
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
             try:
                 info = proc.info or {}
                 pid = info.get("pid")
                 name = str(info.get("name") or "")
                 if pid in protected or not name:
+                    continue
+                cmdline = " ".join(info.get("cmdline") or []).lower()
+                if any(word in cmdline for word in keywords):
                     continue
                 if name.lower() in targets:
                     matches.append((name, int(pid)))
@@ -137,7 +148,10 @@ def _handle_terminate(decision: fuse_mod.Decision, config: dict) -> None:
         notify_mod.notify("WARN", "未安装 psutil，无法终止进程", config)
         return
 
-    matches = _find_processes(names)
+    protect_keywords = actions.get("protect_keywords") or []
+    if isinstance(protect_keywords, str):
+        protect_keywords = [protect_keywords]
+    matches = _find_processes(names, protect_keywords)
     if not matches:
         notify_mod.notify(
             "INFO", "没有找到要终止的进程：" + "、".join(names), config
@@ -274,11 +288,22 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
     config["actions"] = actions
     dry = bool(actions.get("dry_run", True))
     notify_cfg = config.get("notify") or {}
+    astrbot_cfg = notify_cfg.get("astrbot") or {}
+    email_cfg = notify_cfg.get("email") or {}
     wechat_webhook = str(
         (notify_cfg.get("wechat") or {}).get("webhook")
         or (notify_cfg.get("phone") or {}).get("webhook")
         or ""
     ).strip()
+
+    channels = []
+    if astrbot_cfg.get("enabled") and astrbot_cfg.get("api_key") and astrbot_cfg.get("umos"):
+        channels.append("AstrBot")
+    if wechat_webhook:
+        channels.append("企业微信")
+    if email_cfg.get("enabled") and email_cfg.get("smtp_host") and email_cfg.get("to_addrs"):
+        channels.append("邮件")
+    channel_text = "、".join(channels) or "仅屏幕"
 
     notify_mod.notify(
         "INFO",
@@ -287,7 +312,7 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
         f"连续 {_duration_text(fuse.terminate_seconds)} ≥ {fuse.terminate_c:.0f}°C 终止进程，"
         f"连续 {fuse.shutdown_samples} 次 ≥ {fuse.shutdown_c:.0f}°C 关机；"
         f"启动保护 {fuse.startup_grace_seconds:.0f}s；"
-        f"微信{'已启用' if wechat_webhook else '未配置'}；"
+        f"推送：{channel_text}；"
         f"{'演习模式（不真动手）' if dry else '真实模式'}",
         config,
     )
@@ -360,9 +385,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="强制演习模式（覆盖 config 里的 actions.dry_run）",
     )
     parser.add_argument(
+        "--test-notify",
         "--test-wechat",
+        dest="test_notify",
         action="store_true",
-        help="给配置的微信机器人发送一条测试消息后退出",
+        help="给所有已配置的告警通道发送一条测试消息后退出",
     )
     args = parser.parse_args(argv)
 
@@ -372,12 +399,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"读取配置失败：{exc}")
         return 1
 
-    if args.test_wechat:
+    if args.test_notify:
         ok = notify_mod.send_test(config)
         print(
-            "微信机器人测试消息发送成功"
+            "测试消息发送成功（至少一个通道）"
             if ok
-            else "微信机器人测试消息发送失败：检查 notify.wechat.webhook 和网络"
+            else "测试消息发送失败：检查 AstrBot/微信/邮件配置和网络"
         )
         return 0 if ok else 1
 
