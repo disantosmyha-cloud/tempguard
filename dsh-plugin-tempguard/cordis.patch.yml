@@ -1,0 +1,3 @@
+- insert:
+    - id: tempguard
+      name: dsh-plugin-tempguard

@@ -28,6 +28,7 @@
 - **多平台告警**：通过 AstrBot Open API 转发到微信/QQ/飞书/钉钉/Telegram/Discord/Slack；也支持企业微信直连和 SMTP 邮件。
 - **独立告警服务**：temguard → alertd → 可插拔适配器，带队列、重试、健康检查和发送日志；告警通道故障不拖慢监控。
 - **官方平台适配器**：企业微信、飞书、钉钉、Telegram、Discord、Slack、SMTP 邮件、QQ OneBot、个人微信 iLink、Wechaty/WeChatFerry 桥，全部不依赖 AstrBot。
+- **DSH 插件**：`dsh-plugin-tempguard` 把温度查询和告警发送注册成 Agent 工具，可在 DeepSeek Harness 里直接调用。
 - **读不到不崩**：传感器缺失记为 `None`，主循环照常跑。
 - **单轮错误保护**：采样、写日志、发通知哪一步出错，打印后继续下一轮。
 - **日志即证据**：每次采样一行 CSV，事后能回看温度、状态和原因。
@@ -118,7 +119,16 @@ wecom / feishu / dingtalk / telegram / discord / slack / email
 qq_onebot / wechat_ilink / wechat_hook / astrbot
 ```
 
-每个平台的配置示例、加签方式和个人微信 iLink 的上下文限制见 [docs/告警适配器.md](docs/告警适配器.md)。
+每个平台的配置示例、加签方式和个人微信 iLink 的上下文限制见 [docs/告警适配器.md](docs/告警适配器.md)。QQ 扫码登录和 OneBot 桥见 [docs/QQ接入.md](docs/QQ接入.md)。
+
+### DSH 插件
+
+`dsh-plugin-tempguard` 已注册两个工具：
+
+- `tempguard_status`：读取 alertd 健康状态和最新温度；
+- `tempguard_alert`：通过 alertd 发送告警。
+
+安装和配置见 [docs/DSH插件.md](docs/DSH插件.md)。本机 web profile 已安装；插件市场发布需要 npm 账号和 awesome-dsh-plugin PR。
 
 ### 测试所有告警通道
 

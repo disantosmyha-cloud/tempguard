@@ -3,6 +3,9 @@ logs/*.csv
 logs/*.log
 logs/*.jsonl
 !logs/.gitkeep
+runtime/
+dsh-plugin-tempguard/node_modules/
+dsh-plugin-tempguard/package-lock.json
 
 # ---- Python ----
 __pycache__/

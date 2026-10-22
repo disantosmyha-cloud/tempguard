@@ -1,0 +1,4 @@
+{
+  "title": "Tempguard 温度守护",
+  "description": "读取本机 CPU/GPU 温度和告警服务状态，并通过 alertd 发送告警。"
+}

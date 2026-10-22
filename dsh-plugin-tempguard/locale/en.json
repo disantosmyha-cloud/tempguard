@@ -1,0 +1,4 @@
+{
+  "title": "Tempguard Watchdog",
+  "description": "Read local CPU/GPU temperatures and the alertd status, and send alerts through alertd."
+}
