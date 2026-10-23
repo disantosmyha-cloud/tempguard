@@ -124,6 +124,14 @@ python -m core.secrets set alertd_token
 python -m core.secrets list
 ```
 
+QQ 邮箱 SMTP 一步配置（需要先在 QQ 邮箱开启 SMTP 并生成授权码）：
+
+```powershell
+python tools/setup_email.py
+```
+
+它只在邮件测试成功后启用 email，并把 `TRIP` 的关键通道设为 email。
+
 DPAPI 只能由当前 Windows 用户解密；`secrets.dat` 已被 `.gitignore` 忽略。
 
 完整说明见 [docs/独立告警服务Alertd.md](docs/独立告警服务Alertd.md)。
@@ -152,6 +160,12 @@ qq_onebot / wechat_ilink / wechat_hook / astrbot
 
 ```powershell
 python main.py --test-notify
+```
+
+安全故障演练（不会加热硬件、不会关机/杀进程）：
+
+```powershell
+python tools/fault_drill.py
 ```
 
 AstrBot 平台配置见 [docs/AstrBot告警接入.md](docs/AstrBot告警接入.md)，包括怎么找 QQ/飞书/钉钉/Telegram 的 UMO、怎么接 SMTP 邮件，以及怎么保护 AstrBot 不被熔断误杀。
