@@ -79,7 +79,15 @@ alertd:
 - 告警先写入 SQLite `outbox`，进程重启不丢 pending；
 - `workers` ≥ 2，TRIP 可以绕过正在发送的慢通道；
 - `max_pending` 控制磁盘/内存上限；
-- `retry_attempts` / `retry_backoff_seconds` 是每个适配器独立重试。
+- `retry_attempts` / `retry_backoff_seconds` 是每个适配器独立重试；
+- `max_attempts` 是整个 outbox 的投递轮数，失败会按退避时间重新排队；
+- `required_adapters` 非空时，`TRIP` 必须由这些适配器成功才记为 `delivered`，例如：
+
+```yaml
+required_adapters:
+  - email
+```
+- 密钥字段支持 DPAPI 占位符，例如 `token: "${secret:alertd_token}"`。
 
 ### 2.2 temguard 侧
 

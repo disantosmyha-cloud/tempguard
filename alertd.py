@@ -31,6 +31,7 @@ import yaml
 from adapters import AdapterManager, Alert, build_adapters
 from core.config import validate_config
 from core.outbox import Outbox, OutboxFull
+from core.secrets import resolve_config
 from core.single_instance import AlreadyRunning, InstanceLock
 
 ROOT = Path(__file__).resolve().parent
@@ -43,7 +44,7 @@ DEFAULT_WAIT_SECONDS = 10.0
 
 def load_config(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as fh:
-        return validate_config(yaml.safe_load(fh) or {})
+        return validate_config(resolve_config(yaml.safe_load(fh) or {}))
 
 
 def default_config_path() -> Path:
@@ -60,6 +61,12 @@ class AlertService:
         self.token = str(cfg.get("token") or "").strip()
         self.retry_attempts = max(1, int(cfg.get("retry_attempts", 3)))
         self.retry_backoff = max(0.0, float(cfg.get("retry_backoff_seconds", 2)))
+        self.max_attempts = max(1, int(cfg.get("max_attempts", 3)))
+        self.required_adapters = [
+            str(name).strip()
+            for name in (cfg.get("required_adapters") or [])
+            if str(name).strip()
+        ]
         self.default_wait = max(
             1.0,
             min(30.0, float(cfg.get("wait_default_seconds", DEFAULT_WAIT_SECONDS))),
@@ -186,16 +193,32 @@ class AlertService:
                         "error": str(exc)[:300],
                     }
                 ]
-            ok = any(result.get("ok") for result in results)
-            self.outbox.finish(item.id, ok, results)
+            any_ok = any(result.get("ok") for result in results)
+            delivered = any_ok
+            if item.level == "TRIP" and self.required_adapters:
+                delivered = all(
+                    any(
+                        result.get("name") == required and result.get("ok")
+                        for result in results
+                    )
+                    for required in self.required_adapters
+                )
+            status = self.outbox.finish(
+                item.id,
+                delivered,
+                results,
+                retry_after=time.time()
+                + self.retry_backoff * max(1, item.attempts),
+                max_attempts=self.max_attempts,
+            )
             payload = {
                 "id": item.id,
                 "time": alert.timestamp,
                 "level": item.level,
                 "source": item.source,
                 "message": item.message,
-                "ok": ok,
-                "status": "delivered" if ok else "failed",
+                "ok": delivered,
+                "status": status,
                 "attempts": max(
                     (int(result.get("attempts") or 0) for result in results),
                     default=0,

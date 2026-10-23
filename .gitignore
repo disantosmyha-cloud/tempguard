@@ -11,6 +11,8 @@ runtime/
 dsh-plugin-tempguard/node_modules/
 dsh-plugin-tempguard/package-lock.json
 *.tgz
+secrets.dat
+secrets.dat.tmp
 
 # ---- Python ----
 __pycache__/

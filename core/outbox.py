@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     source TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at REAL NOT NULL DEFAULT 0,
     results TEXT,
     delivered_at REAL
 );
@@ -66,6 +67,14 @@ class Outbox:
         self._db.execute("PRAGMA synchronous=NORMAL")
         with self._lock:
             self._db.executescript(_SCHEMA)
+            columns = {
+                str(row[1])
+                for row in self._db.execute("PRAGMA table_info(outbox)").fetchall()
+            }
+            if "next_attempt_at" not in columns:
+                self._db.execute(
+                    "ALTER TABLE outbox ADD COLUMN next_attempt_at REAL NOT NULL DEFAULT 0"
+                )
             self._db.commit()
 
     def close(self) -> None:
@@ -79,7 +88,8 @@ class Outbox:
         """进程崩溃时正在发送的条目重新排队。"""
         with self._lock:
             cur = self._db.execute(
-                "UPDATE outbox SET status='pending' WHERE status='processing'"
+                "UPDATE outbox SET status='pending', next_attempt_at=0 "
+                "WHERE status='processing'"
             )
             self._db.commit()
             return cur.rowcount
@@ -118,8 +128,9 @@ class Outbox:
             try:
                 row = self._db.execute(
                     "SELECT id, created_at, level, priority, message, source, attempts "
-                    "FROM outbox WHERE status='pending' "
-                    "ORDER BY priority ASC, id ASC LIMIT 1"
+                    "FROM outbox WHERE status='pending' AND next_attempt_at <= ? "
+                    "ORDER BY priority ASC, id ASC LIMIT 1",
+                    (time.time(),),
                 ).fetchone()
                 if row is None:
                     self._db.commit()
@@ -143,19 +154,48 @@ class Outbox:
                 attempts=int(row[6]) + 1,
             )
 
-    def finish(self, item_id: int, ok: bool, results: list[dict]) -> None:
-        status = "delivered" if ok else "failed"
+    def finish(
+        self,
+        item_id: int,
+        ok: bool,
+        results: list[dict],
+        *,
+        retry_after: Optional[float] = None,
+        max_attempts: int = 3,
+    ) -> str:
+        """完成一条；失败且还有次数时回到 pending 并设置退避时间。"""
+        if ok:
+            status = "delivered"
+        else:
+            row = self._db.execute(
+                "SELECT attempts FROM outbox WHERE id=?", (item_id,)
+            ).fetchone()
+            attempts = int(row[0] if row else 0)
+            status = "pending" if retry_after is not None and attempts < max_attempts else "failed"
         with self._lock:
-            self._db.execute(
-                "UPDATE outbox SET status=?, results=?, delivered_at=? WHERE id=?",
-                (
-                    status,
-                    json.dumps(results, ensure_ascii=False),
-                    time.time() if ok else None,
-                    item_id,
-                ),
-            )
+            if status == "pending":
+                self._db.execute(
+                    "UPDATE outbox SET status='pending', results=?, "
+                    "next_attempt_at=? WHERE id=?",
+                    (
+                        json.dumps(results, ensure_ascii=False),
+                        retry_after or time.time(),
+                        item_id,
+                    ),
+                )
+            else:
+                self._db.execute(
+                    "UPDATE outbox SET status=?, results=?, delivered_at=? "
+                    "WHERE id=?",
+                    (
+                        status,
+                        json.dumps(results, ensure_ascii=False),
+                        time.time() if ok else None,
+                        item_id,
+                    ),
+                )
             self._db.commit()
+            return status
 
     def prune(self, retention_days: int = 30, max_history: int = 10000) -> int:
         """清理旧的已投递/失败记录，避免 SQLite 无限增长。"""
@@ -175,8 +215,8 @@ class Outbox:
     def requeue_failed(self, item_id: int) -> bool:
         with self._lock:
             cur = self._db.execute(
-                "UPDATE outbox SET status='pending', attempts=0, results=NULL "
-                "WHERE id=? AND status='failed'",
+                "UPDATE outbox SET status='pending', attempts=0, results=NULL, "
+                "next_attempt_at=0 WHERE id=? AND status IN ('failed','pending')",
                 (int(item_id),),
             )
             self._db.commit()

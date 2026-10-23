@@ -25,6 +25,7 @@ from core import fuse as fuse_mod
 from core import notify as notify_mod
 from core import sensors
 from core.config import validate_config
+from core.secrets import resolve_config
 from core.single_instance import AlreadyRunning, InstanceLock
 
 try:
@@ -40,7 +41,7 @@ CSV_HEADER = ["time", "cpu", "gpu", "hottest", "state", "reason"]
 
 def load_config(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as fh:
-        return validate_config(yaml.safe_load(fh) or {})
+        return validate_config(resolve_config(yaml.safe_load(fh) or {}))
 
 
 def _default_config_path() -> Path:
@@ -143,6 +144,24 @@ def _find_processes(
     return matches
 
 
+def _local_critical_fallback(message: str) -> None:
+    """网络全挂时至少让本机响一声并留下本地记录。"""
+    try:
+        if os.name == "nt":
+            import winsound
+
+            winsound.MessageBeep(winsound.MB_ICONHAND)
+    except Exception:
+        pass
+    try:
+        path = ROOT / "logs" / "critical-alerts.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(f"{dt.datetime.now():%Y-%m-%d %H:%M:%S} {message}\n")
+    except Exception:
+        pass
+
+
 def _critical_wait_seconds(config: dict) -> float:
     cfg = (config.get("notify") or {}).get("critical_wait_seconds", 10)
     try:
@@ -168,6 +187,7 @@ def _handle_terminate(decision: fuse_mod.Decision, config: dict) -> None:
         timeout=wait_seconds,
     )
     if not delivered:
+        _local_critical_fallback(f"终止进程告警未送达：{reason}")
         notify_mod.notify(
             "WARN",
             f"关键告警未在 {wait_seconds:.0f}s 内确认送达；仍按温度安全策略继续",
@@ -253,6 +273,7 @@ def _handle_shutdown(decision: fuse_mod.Decision, config: dict) -> None:
         timeout=wait_seconds,
     )
     if not delivered:
+        _local_critical_fallback(f"关机告警未送达：{reason}")
         notify_mod.notify(
             "WARN",
             f"关键关机告警未在 {wait_seconds:.0f}s 内确认送达；仍执行温度安全策略",

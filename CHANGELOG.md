@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.4.0 — 生产前基线
+
+- outbox 失败自动退避重试（`max_attempts`）。
+- 关键告警可配置 `required_adapters`，TRIP 必须由指定官方通道确认。
+- 本地失败兜底：网络全挂时蜂鸣 + `logs/critical-alerts.log`。
+- Windows DPAPI `secrets.dat`；配置支持 `${secret:name}` 占位符。
+- CSV/outbox 保留策略。
+- 21 个单元测试。
+
 ## v1.3.1 — 失败告警重试
 
 - `POST /retry` 将 `failed` 告警重新放回 outbox。

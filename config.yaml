@@ -46,6 +46,8 @@ alertd:
   max_history: 10000
   retry_attempts: 3
   retry_backoff_seconds: 2
+  max_attempts: 3
+  required_adapters: []        # 例如 ["email"]；TRIP 必须由这些适配器确认
 
   # 可插拔适配器；全部不依赖 AstrBot（AstrBot 只是其中一个可选适配器）
   adapters:

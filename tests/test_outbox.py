@@ -34,6 +34,21 @@ class OutboxTests(unittest.TestCase):
         self.assertEqual(self.outbox.stats().get("failed"), 1)
         self.assertEqual(len(self.outbox.failures()), 1)
 
+    def test_failed_item_is_retried_until_max_attempts(self):
+        item = self.outbox.enqueue("TRIP", "x", "test")
+        first = self.outbox.claim_next()
+        self.assertEqual(first.id, item)
+        status = self.outbox.finish(
+            first.id, False, [{"ok": False}], retry_after=0, max_attempts=2
+        )
+        self.assertEqual(status, "pending")
+        second = self.outbox.claim_next()
+        self.assertEqual(second.id, item)
+        status = self.outbox.finish(
+            second.id, False, [{"ok": False}], retry_after=0, max_attempts=2
+        )
+        self.assertEqual(status, "failed")
+
     def test_reset_inflight(self):
         item = self.outbox.enqueue("WARN", "x", "test")
         claimed = self.outbox.claim_next()

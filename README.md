@@ -111,6 +111,21 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 
 AstrBot、NapCat、alertd 都只监听 `127.0.0.1`；不要把 Dashboard/WebUI 暴露到公网。
 
+密钥用 Windows DPAPI 保存到 `secrets.dat`，配置里只写占位符：
+
+```yaml
+token: "${secret:alertd_token}"
+```
+
+管理：
+
+```powershell
+python -m core.secrets set alertd_token
+python -m core.secrets list
+```
+
+DPAPI 只能由当前 Windows 用户解密；`secrets.dat` 已被 `.gitignore` 忽略。
+
 完整说明见 [docs/独立告警服务Alertd.md](docs/独立告警服务Alertd.md)。
 
 ### 可插拔适配器
@@ -226,6 +241,8 @@ time,cpu,gpu,hottest,state,reason
 | `alertd.retention_days` | 30 | 已投递/失败记录保留天数 |
 | `alertd.max_history` | 10000 | 最多保留多少条历史记录 |
 | `alertd.retry_attempts` | 3 | 每个适配器独立重试次数 |
+| `alertd.max_attempts` | 3 | outbox 整体投递轮数（失败退避重试） |
+| `alertd.required_adapters` | `[]` | TRIP 必须成功的适配器名，例如 `["email"]` |
 | `alertd.adapters` | 全部关闭的模板 | 可插拔告警出口，按 `type` 选择平台 |
 | `notify.mode` | `direct` | `direct`=temguard 自己发；`alertd`=投递给独立服务 |
 | `notify.critical_wait_seconds` | 10 | 关机/终止进程前等待告警确认的秒数 |
