@@ -77,6 +77,8 @@ class ActionJournal:
         self._save()
 
     def clear(self) -> None:
+        if not self.data:
+            return
         self.data = {}
         self._save()
 
