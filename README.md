@@ -132,6 +132,8 @@ python tools/setup_email.py
 
 它只在邮件测试成功后启用 email，并把 `TRIP` 的关键通道设为 email。
 
+本机当前已经完成：`email` + `qq-onebot` 双通道，`required_adapters: ["email"]`；邮件已通过 IMAP 验证确实到达 `1356532261@qq.com`。
+
 DPAPI 只能由当前 Windows 用户解密；`secrets.dat` 已被 `.gitignore` 忽略。
 
 完整说明见 [docs/独立告警服务Alertd.md](docs/独立告警服务Alertd.md)。

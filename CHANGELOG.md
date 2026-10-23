@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.4.1 — 官方邮件通道
+
+- QQ 邮箱 `1356532261@qq.com` 已启用 SMTP 授权码并存入 DPAPI。
+- `email` 与 `qq-onebot` 双通道；`TRIP` 必须由 email 确认。
+- 已用 IMAP 验证测试邮件真实到达。
+- `required_adapters` 增加配置类型校验。
+
 ## v1.4.0 — 生产前基线
 
 - outbox 失败自动退避重试（`max_attempts`）。

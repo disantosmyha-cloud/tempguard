@@ -84,6 +84,9 @@ def validate_config(config: Any) -> dict:
         raise ConfigError("alertd.port 必须是整数") from exc
     if not 1 <= port_number <= 65535:
         raise ConfigError("alertd.port 必须在 1..65535")
+    required_adapters = alertd.get("required_adapters") or []
+    if not isinstance(required_adapters, list):
+        raise ConfigError("alertd.required_adapters 必须是列表")
     adapters = alertd.get("adapters") or []
     if not isinstance(adapters, list):
         raise ConfigError("alertd.adapters 必须是列表")
