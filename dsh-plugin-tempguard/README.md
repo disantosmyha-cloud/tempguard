@@ -12,7 +12,7 @@ It does **not** start or stop the watchdog; the Python services remain independe
 From the profile directory:
 
 ```powershell
-dsh plugin --profile web add D:\PythonStudy\tempguard\dsh-plugin-tempguard
+dsh plugin --profile web add C:\path\to\tempguard\dsh-plugin-tempguard
 ```
 
 Then add a loader entry to the profile patch (`cordis.patch.yml`):

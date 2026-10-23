@@ -76,9 +76,9 @@ python main.py --test-notify
 ```text
 QQ 9.9.33-52230
 NapCat Shell 4.18.41
-QQ 号：1356532261（北落师门）
+QQ 号：<your-qq-number>（<bot-name>）
 OneBot HTTP：127.0.0.1:3000
-快速登录：launcher.bat 1356532261
+快速登录：launcher.bat <your-qq-number>
 计划任务：NapCat（登录时启动）
 ```
 
@@ -92,7 +92,7 @@ alertd:
       enabled: true
       base_url: "http://127.0.0.1:3000"
       target_type: "private"
-      target_id: "1356532261"
+      target_id: "<your-qq-number>"
 ```
 
 AstrBot 的告警出口已关闭，但 AstrBot 进程和代码保留，不影响 QQ。

@@ -155,7 +155,7 @@ AstrBot 会逐个发送；某个平台失败不影响其他平台。
 ## 5. 测试
 
 ```powershell
-cd D:\PythonStudy\tempguard
+cd C:\path\to\tempguard
 python main.py --test-notify
 ```
 

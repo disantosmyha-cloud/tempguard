@@ -1,0 +1,49 @@
+name: Bug report
+description: Something is broken or behaves unsafely
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        不要粘贴 token、邮箱授权码、`secrets.dat`、`config.local.yaml` 或含个人信息的日志。
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "v1.5.0 / commit"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "Windows 11, Python 3.12, CPU/GPU model"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Sanitized commands/config only.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety
+      options:
+        - label: I removed tokens, credentials and personal data from this report.
+          required: true

@@ -1,5 +1,9 @@
 # temguard
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](pyproject.toml)
+[![CI](https://github.com/disantosmyha-cloud/tempguard/actions/workflows/python.yml/badge.svg)](https://github.com/disantosmyha-cloud/tempguard/actions/workflows/python.yml)
+
 **是什么**：一个本地温度看门狗。每隔几秒读一次 CPU/GPU 温度，写进 CSV，温度持续超限就按四态升级：安全 → 警告 → 终止进程 → 关机。
 
 **为什么不是“超一下就杀”**：游戏、编译、瞬时加速都会让温度冲一下。tempguard 只认“连续”：
@@ -132,7 +136,7 @@ python tools/setup_email.py
 
 它只在邮件测试成功后启用 email，并把 `TRIP` 的关键通道设为 email。
 
-本机当前已经完成：`email` + `qq-onebot` 双通道，`required_adapters: ["email"]`；邮件已通过 IMAP 验证确实到达 `1356532261@qq.com`。
+部署时建议至少配置 `email` + `qq-onebot` 双通道，并把 `required_adapters` 设为 `["email"]`；真实账号、授权码和通道开关只放在 `config.local.yaml`，不入库。
 
 DPAPI 只能由当前 Windows 用户解密；`secrets.dat` 已被 `.gitignore` 忽略。
 
@@ -333,6 +337,14 @@ Windows 上要让 CPU 温度可读，必须让 LibreHardwareMonitor 以管理员
 - [ ] 温度曲线图（读 `logs/temps.csv` 画个 SVG）
 - [ ] 触发后自动降频而不是终止进程
 
+## 参与贡献
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)：开发环境、测试、配置和 PR 规则
+- [SECURITY.md](SECURITY.md)：安全边界和私密报告方式
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)：行为准则
+
+安全问题不要在公开 Issue 里贴 token、授权码或 `secrets.dat`。
+
 ## 许可证
 
-[MIT](LICENSE) —— 随便用，出事别找我。
+[MIT](LICENSE)。软件按现状提供，不附带任何明示或暗示担保；温度阈值、告警送达和关机动作请自行验证。

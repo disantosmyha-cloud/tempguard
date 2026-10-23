@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest a focused improvement
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What failure mode or workflow does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: Safety / failure impact
+      description: What happens if this feature fails during overheating?
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This does not add another chat platform without a maintenance plan.

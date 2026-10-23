@@ -46,12 +46,12 @@ latest temp: 2026-10-22 22:18:42,55.5,50.0,55.5,safe,
 ## 安装到 DSH
 
 ```powershell
-dsh plugin --profile web add D:\PythonStudy\tempguard\dsh-plugin-tempguard
+dsh plugin --profile web add C:\path\to\tempguard\dsh-plugin-tempguard
 ```
 
 `package.json` 里的 `dsh.bundle.patch` 会自动把插件加入 profile 的 bundles。
 
-然后在 `C:\Users\13565\.dsh\profiles\web\cordis.patch.yml` 增加配置：
+然后在 `C:\Users\<you>\.dsh\profiles\web\cordis.patch.yml` 增加配置：
 
 ```yaml
 - id: tempguard

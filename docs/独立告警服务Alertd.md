@@ -25,7 +25,7 @@ AstrBot 继续作为**协议适配层**，负责各家 IM 的登录、收发和�
 ## 1. 启动
 
 ```powershell
-cd D:\PythonStudy\tempguard
+cd C:\path\to\tempguard
 python alertd.py
 ```
 
