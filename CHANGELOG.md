@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.5.1 — 开源准备
+
+- 文档去个人化：QQ 号、邮箱、本机绝对路径改为占位符。
+- 新增 `CONTRIBUTING.md`、`SECURITY.md`、`CODE_OF_CONDUCT.md`。
+- 新增 GitHub Issue/PR 模板。
+- CI 正式上传并通过：Ruff fatal checks + 35 个测试 + 覆盖率门槛。
+- GitHub 仓库补充主题、描述和 CI 徽章。
+
 ## v1.5.0 — 安全语义与工程化
 
 - 传感器新鲜度检测：全部传感器失效持续 `sensor_loss_seconds` 后按 `sensor_loss_action` 执行 fail-safe。
