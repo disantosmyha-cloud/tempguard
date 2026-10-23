@@ -10,7 +10,7 @@ export const inject = ["tools"];
 const DEFAULT_PROJECT = "D:\\PythonStudy\\tempguard";
 const DEFAULT_ALERTD = "http://127.0.0.1:8765/alert";
 
-function asConfig(config) {
+export function asConfig(config) {
   return {
     projectDir: String(config?.projectDir || DEFAULT_PROJECT),
     alertdUrl: String(config?.alertdUrl || DEFAULT_ALERTD),

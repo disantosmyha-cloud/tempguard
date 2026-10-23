@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tempguard"
+version = "1.5.0"
+description = "Windows CPU/GPU temperature watchdog with persistent alert outbox"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "PyYAML>=6.0,<7",
+    "psutil>=5.9,<8",
+]
+
+[project.optional-dependencies]
+gpu = ["pynvml>=11,<13"]
+dev = ["coverage>=7", "ruff>=0.5"]
+
+[project.scripts]
+tempguard = "main:main"
+tempguard-alertd = "alertd:main"
+
+[tool.setuptools]
+py-modules = ["main", "alertd"]
+
+[tool.setuptools.packages.find]
+include = ["core*", "adapters*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.coverage.run]
+branch = true
+source = ["core", "adapters", "main", "alertd"]
+
+[tool.coverage.report]
+show_missing = true

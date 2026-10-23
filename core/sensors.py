@@ -67,6 +67,12 @@ _lhm_cache: Optional[List[LhmReading]] = None
 _lhm_cache_at = 0.0
 _lhm_retry_at = 0.0
 
+# 最近一次成功读到的温度及单调时钟时间，用于判断传感器是否“失联”。
+_health_lock = threading.Lock()
+_last_ok_at: Dict[str, float] = {}
+_last_values: Dict[str, float] = {}
+_last_changed_at: Dict[str, float] = {}
+
 _NUMBER_RE = re.compile(r"[-+]?\d+(?:[.,]\d+)?")
 
 
@@ -415,6 +421,43 @@ def read_cpu_usage() -> Optional[float]:
         return None
 
 
+def reset_health() -> None:
+    """测试/演练用：清空传感器新鲜度状态。"""
+    with _health_lock:
+        _last_ok_at.clear()
+        _last_values.clear()
+        _last_changed_at.clear()
+
+
+def sensor_health(
+    keys: Tuple[str, ...] = ("cpu", "gpu"),
+    stale_seconds: float = 30.0,
+    unchanged_seconds: float = 900.0,
+) -> Dict[str, dict]:
+    """返回每个温度源的最近成功时间、年龄、是否 stale/长时间不变。"""
+    now = time.monotonic()
+    with _health_lock:
+        result: Dict[str, dict] = {}
+        for key in keys:
+            last_ok = _last_ok_at.get(key)
+            value = _last_values.get(key)
+            changed = _last_changed_at.get(key)
+            age = None if last_ok is None else max(0.0, now - last_ok)
+            unchanged = None if changed is None else max(0.0, now - changed)
+            result[key] = {
+                "value": value,
+                "age_seconds": age,
+                "unchanged_seconds": unchanged,
+                "stale": age is None or age > stale_seconds,
+                "frozen": (
+                    unchanged_seconds > 0
+                    and unchanged is not None
+                    and unchanged > unchanged_seconds
+                ),
+            }
+        return result
+
+
 def read_temperatures(config: Optional[dict] = None) -> Dict[str, Optional[float]]:
     """读一次温度。CPU 占用请用 read_cpu_usage()，不要混进这个字典。"""
     cfg = config if isinstance(config, dict) else {}
@@ -433,6 +476,16 @@ def read_temperatures(config: Optional[dict] = None) -> Dict[str, Optional[float
             value = None
         result[key] = float(value) if _plausible(value) else None
 
+    now = time.monotonic()
+    with _health_lock:
+        for key, value in result.items():
+            if value is None:
+                continue
+            _last_ok_at[key] = now
+            previous = _last_values.get(key)
+            if previous is None or abs(previous - value) >= 0.05:
+                _last_changed_at[key] = now
+            _last_values[key] = value
     return result
 
 

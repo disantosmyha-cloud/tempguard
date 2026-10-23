@@ -121,6 +121,36 @@ class Fuse:
         self._terminate_since = None
         self._shutdown_streak = 0
 
+    def export_state(self, now: Optional[float] = None) -> dict:
+        """导出跨进程恢复所需的连续计时，不保存瞬时读数。"""
+        now = time.monotonic() if now is None else now
+        held = 0.0
+        if self._terminate_since is not None:
+            held = max(0.0, now - self._terminate_since)
+        return {
+            "terminate_held": held,
+            "shutdown_streak": self._shutdown_streak,
+            "cool_seen": self._cool_seen,
+            "armed": self._armed,
+        }
+
+    def restore_state(self, state: Optional[dict], now: Optional[float] = None) -> None:
+        """从同一 Windows 启动周期的快照恢复计时，避免重启归零。"""
+        if not isinstance(state, dict):
+            return
+        now = time.monotonic() if now is None else now
+        try:
+            held = max(0.0, float(state.get("terminate_held", 0)))
+        except (TypeError, ValueError):
+            held = 0.0
+        self._terminate_since = None if held <= 0 else now - held
+        try:
+            self._shutdown_streak = max(0, int(state.get("shutdown_streak", 0)))
+        except (TypeError, ValueError):
+            self._shutdown_streak = 0
+        self._cool_seen = bool(state.get("cool_seen", False))
+        self._armed = bool(state.get("armed", False))
+
     def _update_armed(self, now: float, hottest: Optional[float]) -> float:
         """更新启动保护状态，返回保护期剩余秒数。"""
         if self._started_at is None:

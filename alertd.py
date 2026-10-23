@@ -67,6 +67,7 @@ class AlertService:
             for name in (cfg.get("required_adapters") or [])
             if str(name).strip()
         ]
+        self.config_errors: list[str] = []
         self.default_wait = max(
             1.0,
             min(30.0, float(cfg.get("wait_default_seconds", DEFAULT_WAIT_SECONDS))),
@@ -75,7 +76,15 @@ class AlertService:
             build_adapters(config),
             retry_attempts=self.retry_attempts,
             retry_backoff=self.retry_backoff,
+            circuit_failures=int(cfg.get("circuit_failures", 3)),
+            circuit_cooldown=float(cfg.get("circuit_cooldown_seconds", 60)),
         )
+        available = set(self.adapter_manager.channels())
+        missing = [name for name in self.required_adapters if name not in available]
+        if missing:
+            self.config_errors.append(
+                "required_adapters 未启用：" + "、".join(missing)
+            )
 
         db_file = Path(cfg.get("db_file") or "logs/alerts.db")
         if not db_file.is_absolute():
@@ -109,6 +118,14 @@ class AlertService:
         ]
 
     def start(self) -> None:
+        if self.config_errors:
+            self._append_log(
+                {
+                    "time": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "event": "config_error",
+                    "errors": self.config_errors,
+                }
+            )
         recovered = self.outbox.reset_inflight()
         if recovered:
             self._append_log(
@@ -130,8 +147,19 @@ class AlertService:
                 pass
         self.outbox.close()
 
-    def enqueue(self, level: str, message: str, source: str) -> int:
-        return self.outbox.enqueue(level, message[:2000], source)
+    def enqueue(
+        self,
+        level: str,
+        message: str,
+        source: str,
+        idempotency_key: Optional[str] = None,
+    ) -> int:
+        return self.outbox.enqueue(
+            level,
+            message[:2000],
+            source,
+            idempotency_key=idempotency_key,
+        )
 
     def wait_result(self, item_id: int, timeout: float) -> dict:
         timeout = max(1.0, min(30.0, float(timeout)))
@@ -158,7 +186,9 @@ class AlertService:
 
     def health(self) -> dict:
         return {
-            "status": "ok",
+            "status": "degraded" if self.config_errors else "ok",
+            "config_errors": list(self.config_errors),
+            "required_adapters": list(self.required_adapters),
             "pending": self.outbox.pending_count(),
             "outbox": self.outbox.stats(),
             "channels": self.channels(),
@@ -226,7 +256,8 @@ class AlertService:
                 "results": results,
             }
             self._append_log(payload)
-            self._complete(item.id, payload)
+            if status != "pending":
+                self._complete(item.id, payload)
 
     def _complete(self, item_id: int, payload: dict) -> None:
         with self._waiters_lock:
@@ -326,6 +357,7 @@ def _make_handler(service: AlertService):
             level = str(payload.get("level") or "INFO").upper()
             message = str(payload.get("message") or "").strip()
             source = str(payload.get("source") or "temguard")[:100]
+            idempotency_key = str(payload.get("idempotency_key") or "").strip() or None
             if level not in ("INFO", "WARN", "TRIP"):
                 self._send(400, {"status": "error", "message": "invalid level"})
                 return
@@ -334,7 +366,12 @@ def _make_handler(service: AlertService):
                 return
 
             try:
-                item_id = service.enqueue(level, message, source)
+                item_id = service.enqueue(
+                    level,
+                    message,
+                    source,
+                    idempotency_key=idempotency_key,
+                )
             except OutboxFull as exc:
                 self._send(503, {"status": "error", "message": str(exc)})
                 return

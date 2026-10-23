@@ -53,6 +53,15 @@ def validate_config(config: Any) -> dict:
     grace = _number(safety, "startup_grace_seconds", 180)
     if grace is None or grace < 0:
         raise ConfigError("safety.startup_grace_seconds 必须 ≥ 0")
+    stale = _number(safety, "sensor_stale_seconds", 20)
+    if stale is None or stale < 1:
+        raise ConfigError("safety.sensor_stale_seconds 必须 ≥ 1")
+    loss = _number(safety, "sensor_loss_seconds", 300)
+    if loss is None or loss < 0:
+        raise ConfigError("safety.sensor_loss_seconds 必须 ≥ 0")
+    loss_action = str(safety.get("sensor_loss_action") or "warn").lower()
+    if loss_action not in ("warn", "shutdown"):
+        raise ConfigError("safety.sensor_loss_action 只能是 warn 或 shutdown")
 
     actions = config.get("actions") or {}
     if not isinstance(actions, dict):
@@ -62,6 +71,9 @@ def validate_config(config: Any) -> dict:
         processes = [processes]
     if not isinstance(processes, list):
         raise ConfigError("actions.terminate_processes 必须是列表")
+    retry = _number(actions, "retry_seconds", 60)
+    if retry is None or retry < 5:
+        raise ConfigError("actions.retry_seconds 必须 ≥ 5")
 
     notify = config.get("notify") or {}
     if not isinstance(notify, dict):
@@ -90,6 +102,15 @@ def validate_config(config: Any) -> dict:
     adapters = alertd.get("adapters") or []
     if not isinstance(adapters, list):
         raise ConfigError("alertd.adapters 必须是列表")
+    monitor = config.get("monitor") or {}
+    if not isinstance(monitor, dict):
+        raise ConfigError("monitor 必须是映射")
+    heartbeat_url = str(monitor.get("heartbeat_url") or "").strip()
+    if heartbeat_url and not heartbeat_url.startswith(("http://", "https://")):
+        raise ConfigError("monitor.heartbeat_url 必须是 http(s) URL")
+    interval = _number(monitor, "heartbeat_interval_seconds", 60)
+    if interval is None or interval < 10:
+        raise ConfigError("monitor.heartbeat_interval_seconds 必须 ≥ 10")
     for index, adapter in enumerate(adapters):
         if not isinstance(adapter, dict):
             raise ConfigError(f"alertd.adapters[{index}] 必须是映射")

@@ -16,8 +16,11 @@ thresholds:
 
 safety:
   # 开机/刚启动时的传感器可能报出假高温（例如 100°C+），不能据此关机。
-  startup_grace_seconds: 180   # 启动后 180 秒内只警告，不终止/关机
+  startup_grace_seconds: 180   # 冷启动后 180 秒内只警告，不终止/关机
   require_cool_baseline: true  # 必须先读到一次低于 warning_c 的正常温度，才允许动作
+  sensor_stale_seconds: 20     # 温度读数超过多少秒算失效
+  sensor_loss_seconds: 300     # 全部温度源失效持续多少秒
+  sensor_loss_action: "warn"   # warn 或 shutdown（本机可设 shutdown）
 
 actions:
   dry_run: true                # 公开版默认演习；本机真实参数放 config.local.yaml
@@ -25,6 +28,7 @@ actions:
     - blender.exe
     - python.exe
   shutdown_delay_seconds: 60   # 真关机时留给你的取消时间；取消命令：shutdown /a
+  retry_seconds: 60            # 终止/关机失败后的重试间隔
   protect_keywords:            # 命令行包含这些词的进程不终止（保护告警服务）
     - astrbot
     - alertd
@@ -32,6 +36,11 @@ actions:
 sensors:
   cpu: true                    # 关掉后不再读 CPU 温度
   gpu: true                    # 关掉后不再读 GPU 温度
+
+monitor:
+  heartbeat_url: ""            # 可选：外部 dead-man switch，例如 healthchecks.io
+  heartbeat_interval_seconds: 60
+  heartbeat_token: ""
 
 alertd:
   host: "127.0.0.1"            # 只监听本机
@@ -47,6 +56,8 @@ alertd:
   retry_attempts: 3
   retry_backoff_seconds: 2
   max_attempts: 3
+  circuit_failures: 3
+  circuit_cooldown_seconds: 60
   required_adapters: []        # 例如 ["email"]；TRIP 必须由这些适配器确认
 
   # 可插拔适配器；全部不依赖 AstrBot（AstrBot 只是其中一个可选适配器）

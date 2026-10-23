@@ -274,6 +274,7 @@ def _push_alertd(
     *,
     wait: bool = False,
     wait_timeout: Optional[float] = None,
+    idempotency_key: Optional[str] = None,
 ) -> bool:
     payload = {
         "level": level,
@@ -281,6 +282,8 @@ def _push_alertd(
         "timestamp": stamp,
         "source": "temguard",
     }
+    if idempotency_key:
+        payload["idempotency_key"] = str(idempotency_key)[:200]
     if wait:
         payload["wait"] = True
         payload["timeout_seconds"] = wait_timeout or timeout
@@ -362,6 +365,7 @@ def notify_blocking(
     message: str,
     config: Optional[dict] = None,
     timeout: float = 10.0,
+    idempotency_key: Optional[str] = None,
 ) -> bool:
     """关键动作专用：同步等待至少一个通道确认送达。
 
@@ -385,6 +389,7 @@ def notify_blocking(
             max(req_timeout, timeout + 2),
             wait=True,
             wait_timeout=timeout,
+            idempotency_key=idempotency_key,
         )
 
     return send_direct(config, level, message, False)

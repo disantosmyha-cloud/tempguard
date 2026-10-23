@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.5.0 — 安全语义与工程化
+
+- 传感器新鲜度检测：全部传感器失效持续 `sensor_loss_seconds` 后按 `sensor_loss_action` 执行 fail-safe。
+- 关键动作日志：terminate/shutdown 失败后按 `actions.retry_seconds` 重试，跨进程恢复。
+- 熔断计时器持久化：同一启动周期重启不再重置 20 分钟终止计时。
+- 可选外部 heartbeat：配置 `monitor.heartbeat_url` 后可由外部 dead-man switch 发现整机失联。
+- alertd：`required_adapters` 启动校验（不匹配时 health=degraded）、幂等键、wait 跨 outbox 重试。
+- 适配器熔断器和重试抖动。
+- `pyproject.toml`、依赖版本边界、覆盖率测量；测试增至 35 个。
+- DSH 插件增加 `node --test` 测试和导出 `asConfig`。
+
 ## v1.4.1 — 官方邮件通道
 
 - QQ 邮箱 `1356532261@qq.com` 已启用 SMTP 授权码并存入 DPAPI。

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     status TEXT NOT NULL DEFAULT 'pending',
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at REAL NOT NULL DEFAULT 0,
+    idempotency_key TEXT,
     results TEXT,
     delivered_at REAL
 );
@@ -75,6 +76,14 @@ class Outbox:
                 self._db.execute(
                     "ALTER TABLE outbox ADD COLUMN next_attempt_at REAL NOT NULL DEFAULT 0"
                 )
+            if "idempotency_key" not in columns:
+                self._db.execute(
+                    "ALTER TABLE outbox ADD COLUMN idempotency_key TEXT"
+                )
+            self._db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_idempotency "
+                "ON outbox(idempotency_key) WHERE idempotency_key IS NOT NULL"
+            )
             self._db.commit()
 
     def close(self) -> None:
@@ -108,19 +117,41 @@ class Outbox:
             ).fetchall()
             return {str(status): int(count) for status, count in rows}
 
-    def enqueue(self, level: str, message: str, source: str) -> int:
+    def enqueue(
+        self,
+        level: str,
+        message: str,
+        source: str,
+        idempotency_key: Optional[str] = None,
+    ) -> int:
+        key = str(idempotency_key).strip()[:200] if idempotency_key else None
         with self._lock:
+            if key:
+                existing = self._db.execute(
+                    "SELECT id FROM outbox WHERE idempotency_key=?", (key,)
+                ).fetchone()
+                if existing:
+                    return int(existing[0])
             pending = self.pending_count()
             if pending >= self.max_pending:
                 raise OutboxFull(f"outbox 已满：{pending}/{self.max_pending}")
             priority = _PRIORITY.get(level, 1)
-            cur = self._db.execute(
-                "INSERT INTO outbox(created_at, level, priority, message, source, status) "
-                "VALUES (?, ?, ?, ?, ?, 'pending')",
-                (time.time(), level, priority, message, source),
-            )
-            self._db.commit()
-            return int(cur.lastrowid)
+            try:
+                cur = self._db.execute(
+                    "INSERT INTO outbox(created_at, level, priority, message, source, "
+                    "status, idempotency_key) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+                    (time.time(), level, priority, message, source, key),
+                )
+                self._db.commit()
+                return int(cur.lastrowid)
+            except sqlite3.IntegrityError:
+                self._db.rollback()
+                existing = self._db.execute(
+                    "SELECT id FROM outbox WHERE idempotency_key=?", (key,)
+                ).fetchone()
+                if existing:
+                    return int(existing[0])
+                raise
 
     def claim_next(self) -> Optional[OutboxItem]:
         with self._lock:

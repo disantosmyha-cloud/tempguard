@@ -10,7 +10,7 @@
 连续 3 次 ≥ 95°C               → 关机
 温度 < 88°C                    → 恢复正常，所有计时/计数清零
 
-启动后 180 秒内、且还没读到正常温度前：只警告，不终止、不关机
+冷启动后 180 秒内、且还没读到正常温度前：只警告，不终止、不关机
 ```
 
 > **公开仓库的 `config.yaml` 默认是演习模式（`dry_run: true`）**。本机如果存在 `config.local.yaml`，`main.py` 会优先读取它；当前本机的真实模式参数就在这个文件里，而它已被 `.gitignore` 忽略，不会上传。
@@ -23,7 +23,7 @@
 
 - **四态清晰**：`safe` / `warning` / `terminate` / `shutdown`，主循环按状态动作。
 - **只认连续**：瞬时峰值只到警告，掉回阈值以下计时/计数立即重来。
-- **开机保护**：启动后 180 秒内、且未读到正常温度前，即使传感器报 100°C+ 也只警告，不会直接关机。
+- **开机保护**：冷启动后 180 秒内、且未读到正常温度前，即使传感器报 100°C+ 也只警告，不会直接关机。
 - **演习模式**：所有危险动作都可以先空跑。
 - **多平台告警**：通过 AstrBot Open API 转发到微信/QQ/飞书/钉钉/Telegram/Discord/Slack；也支持企业微信直连和 SMTP 邮件。
 - **独立告警服务**：temguard → alertd → 可插拔适配器，带 SQLite 持久化 outbox、TRIP 优先级、并行 fanout、重试、健康检查和发送日志。
@@ -170,6 +170,14 @@ python main.py --test-notify
 python tools/fault_drill.py
 ```
 
+测试：
+
+```powershell
+python -m unittest discover -s tests -v
+python -m coverage run -m unittest discover -s tests
+python -m coverage report
+```
+
 AstrBot 平台配置见 [docs/AstrBot告警接入.md](docs/AstrBot告警接入.md)，包括怎么找 QQ/飞书/钉钉/Telegram 的 UMO、怎么接 SMTP 邮件，以及怎么保护 AstrBot 不被熔断误杀。
 
 如果不想经过 AstrBot，也可以直接用企业微信群机器人：
@@ -242,13 +250,19 @@ time,cpu,gpu,hottest,state,reason
 | `thresholds.shutdown_c` | 95 | 关机温度线 |
 | `thresholds.shutdown_samples` | 3 | 连续多少次 ≥ `shutdown_c` 才关机 |
 | `thresholds.reset_c` | 88 | 低于此温度算恢复正常，计时/计数清零 |
-| `safety.startup_grace_seconds` | 180 | 启动后多少秒内只警告、不终止/关机 |
+| `safety.startup_grace_seconds` | 180 | 冷启动后多少秒内只警告、不终止/关机 |
 | `safety.require_cool_baseline` | `true` | 是否必须先读到一次正常温度才允许动作 |
+| `safety.sensor_stale_seconds` | 20 | 超过多少秒没有新读数算失效 |
+| `safety.sensor_loss_seconds` | 300 | 全部传感器失效持续多久触发 fail-safe |
+| `safety.sensor_loss_action` | `warn` | `warn` 或 `shutdown` |
 | `actions.dry_run` | `true` | 公开默认演习；本机 `config.local.yaml` 里是 `false`（真实模式） |
 | `actions.terminate_processes` | `[blender.exe, python.exe]` | 要终止的进程名，不区分大小写 |
 | `actions.shutdown_delay_seconds` | 60 | 真关机时留给你的取消时间；取消命令 `shutdown /a` |
+| `actions.retry_seconds` | 60 | 终止/关机失败后的重试间隔 |
 | `actions.protect_keywords` | `[astrbot, alertd]` | 命令行包含这些词的进程不会被终止，保护告警服务 |
 | `sensors.cpu` / `sensors.gpu` | `true` | 单独关掉某个温度来源 |
+| `monitor.heartbeat_url` | 空 | 可选外部 dead-man switch URL |
+| `monitor.heartbeat_interval_seconds` | 60 | 外部 heartbeat 间隔 |
 | `alertd.host` / `alertd.port` | `127.0.0.1` / 8765 | 独立告警服务监听地址 |
 | `alertd.token` | 空 | alertd 的本机鉴权 token |
 | `alertd.db_file` | `logs/alerts.db` | SQLite 持久化 outbox |
@@ -258,6 +272,8 @@ time,cpu,gpu,hottest,state,reason
 | `alertd.max_history` | 10000 | 最多保留多少条历史记录 |
 | `alertd.retry_attempts` | 3 | 每个适配器独立重试次数 |
 | `alertd.max_attempts` | 3 | outbox 整体投递轮数（失败退避重试） |
+| `alertd.circuit_failures` | 3 | 连续失败多少次打开适配器熔断 |
+| `alertd.circuit_cooldown_seconds` | 60 | 熔断冷却时间 |
 | `alertd.required_adapters` | `[]` | TRIP 必须成功的适配器名，例如 `["email"]` |
 | `alertd.adapters` | 全部关闭的模板 | 可插拔告警出口，按 `type` 选择平台 |
 | `notify.mode` | `direct` | `direct`=temguard 自己发；`alertd`=投递给独立服务 |
@@ -294,7 +310,7 @@ time,cpu,gpu,hottest,state,reason
 
 LHM/驱动刚启动时，传感器偶尔会报出 100°C+ 的假高温。直接按这个温度关机显然不科学，所以 fuse 有两道保护：
 
-1. **启动保护期**：程序启动后 `startup_grace_seconds`（默认 180 秒）内，只警告，不终止、不关机；
+1. **启动保护期**：冷启动后 `startup_grace_seconds`（默认 180 秒）内，只警告，不终止、不关机；
 2. **正常温度基线**：必须先读到一次低于 `warning_c` 的温度，才允许执行动作。如果开机后一直只读到异常高温，就一直只警告。
 
 保护期结束时，保护期内累计的高温次数/时长会清零，不会“带着开机那几分钟的假数据”立刻关机。

@@ -21,7 +21,9 @@ from typing import Dict, List, Optional, Tuple
 
 import yaml
 
+from core import action_journal as action_journal_mod
 from core import fuse as fuse_mod
+from core import heartbeat as heartbeat_mod
 from core import notify as notify_mod
 from core import sensors
 from core.config import validate_config
@@ -171,7 +173,7 @@ def _critical_wait_seconds(config: dict) -> float:
     return max(1.0, min(30.0, value))
 
 
-def _handle_terminate(decision: fuse_mod.Decision, config: dict) -> None:
+def _handle_terminate(decision: fuse_mod.Decision, config: dict) -> bool:
     """处理“终止进程”状态。"""
     actions = config.get("actions") or {}
     names = actions.get("terminate_processes") or []
@@ -196,10 +198,10 @@ def _handle_terminate(decision: fuse_mod.Decision, config: dict) -> None:
 
     if not names:
         notify_mod.notify("WARN", "没有配置 actions.terminate_processes，跳过终止", config)
-        return
+        return True
     if psutil is None:
         notify_mod.notify("WARN", "未安装 psutil，无法终止进程", config)
-        return
+        return False
 
     protect_keywords = actions.get("protect_keywords") or []
     if isinstance(protect_keywords, str):
@@ -209,13 +211,14 @@ def _handle_terminate(decision: fuse_mod.Decision, config: dict) -> None:
         notify_mod.notify(
             "INFO", "没有找到要终止的进程：" + "、".join(names), config
         )
-        return
+        return True
 
     if dry_run:
         for name, pid in matches:
             notify_mod.notify("INFO", f"演习：假装终止了 {name}({pid})", config)
-        return
+        return True
 
+    all_ok = True
     for name, pid in matches:
         tag = f"{name}({pid})"
         try:
@@ -227,9 +230,12 @@ def _handle_terminate(decision: fuse_mod.Decision, config: dict) -> None:
                 proc.kill()
             notify_mod.notify("INFO", f"已终止 {tag}", config)
         except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+            all_ok = False
             notify_mod.notify("WARN", f"终止 {tag} 失败：{exc}", config)
         except Exception as exc:
+            all_ok = False
             notify_mod.notify("WARN", f"终止 {tag} 失败：{exc}", config)
+    return all_ok
 
 
 def _schedule_shutdown(delay_seconds: int) -> Tuple[bool, str]:
@@ -255,8 +261,8 @@ def _schedule_shutdown(delay_seconds: int) -> Tuple[bool, str]:
         return False, str(exc)
 
 
-def _handle_shutdown(decision: fuse_mod.Decision, config: dict) -> None:
-    """处理“关机”状态。演习模式绝不真关机。"""
+def _handle_shutdown(decision: fuse_mod.Decision, config: dict) -> bool:
+    """处理“关机”状态。演习模式绝不真关机。返回是否已成功处理。"""
     actions = config.get("actions") or {}
     dry_run = bool(actions.get("dry_run", True))
     try:
@@ -284,46 +290,71 @@ def _handle_shutdown(decision: fuse_mod.Decision, config: dict) -> None:
         notify_mod.notify(
             "WARN", f"演习：本该在 {delay}s 后关机，已跳过（不会执行 shutdown）", config
         )
-        return
+        return True
 
     ok, detail = _schedule_shutdown(delay)
     if ok:
         notify_mod.notify(
             "TRIP", f"已计划 {delay}s 后关机；取消请运行：shutdown /a", config
         )
-    else:
-        notify_mod.notify("WARN", f"自动关机失败：{detail}", config)
+        return True
+    notify_mod.notify("WARN", f"自动关机失败：{detail}", config)
+    return False
 
 
 def _handle_state(
     decision: fuse_mod.Decision,
     prev_state: Optional[str],
     config: dict,
+    journal: Optional[action_journal_mod.ActionJournal] = None,
+    retry_seconds: float = 60.0,
 ) -> None:
-    """只在状态变化时发告警，避免每 5 秒刷屏。"""
+    """状态变化时告警；危险动作失败/被取消后按间隔重试。"""
     state = decision.state
+    reason = "；".join(decision.reasons) or "温度状态变化"
 
     if state == fuse_mod.SAFE:
         if prev_state in (fuse_mod.WARNING, fuse_mod.TERMINATE, fuse_mod.SHUTDOWN):
             hottest = _fmt(decision.hottest) or "?"
             notify_mod.notify("INFO", f"温度恢复正常：最热 {hottest}°C", config)
+        if journal is not None:
+            # 状态回到安全：清掉旧的 failed/scheduled 记录。
+            # 若 shutdown 已被用户取消，下一次高温可以重新发起动作。
+            journal.clear()
         return
 
     if state == fuse_mod.WARNING:
         if prev_state != fuse_mod.WARNING:
-            notify_mod.notify(
-                "WARN", "温度警告：" + ("；".join(decision.reasons) or "温度偏高"), config
-            )
+            notify_mod.notify("WARN", f"温度警告：{reason}", config)
         return
 
-    if state == fuse_mod.TERMINATE:
-        if prev_state != fuse_mod.TERMINATE:
-            _handle_terminate(decision, config)
-        return
-
-    if state == fuse_mod.SHUTDOWN:
-        if prev_state != fuse_mod.SHUTDOWN:
-            _handle_shutdown(decision, config)
+    if state in (fuse_mod.TERMINATE, fuse_mod.SHUTDOWN):
+        if journal is not None:
+            if not journal.should_attempt(state, retry_seconds):
+                return
+            journal.begin(state, reason)
+            try:
+                ok = (
+                    _handle_terminate(decision, config)
+                    if state == fuse_mod.TERMINATE
+                    else _handle_shutdown(decision, config)
+                )
+            except Exception as exc:
+                journal.finish(state, "failed", str(exc))
+                notify_mod.notify("WARN", f"{state} 动作异常：{exc}", config)
+                return
+            if ok:
+                status = "scheduled" if state == fuse_mod.SHUTDOWN else "done"
+                journal.finish(state, status)
+            else:
+                journal.finish(state, "failed", "动作返回失败，见告警/日志")
+            return
+        # 没有 journal 的兼容路径：只在状态变化时执行一次。
+        if prev_state != state:
+            if state == fuse_mod.TERMINATE:
+                _handle_terminate(decision, config)
+            else:
+                _handle_shutdown(decision, config)
 
 
 # ---------------------------------------------------------------- 主循环
@@ -332,6 +363,24 @@ def _duration_text(seconds: float) -> str:
     if seconds >= 60:
         return f"{seconds / 60:.0f} 分钟"
     return f"{seconds:.0f} 秒"
+
+
+def _load_json(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_json(path: Path, value: dict) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+    except Exception:
+        pass
 
 
 def _cold_boot() -> bool:
@@ -375,7 +424,45 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
         safety=config.get("safety"),
         cold_boot=cold_boot,
     )
+    fuse_state_path = ROOT / "logs" / "fuse_state.json"
+    if not cold_boot:
+        fuse.restore_state(_load_json(fuse_state_path))
+    journal = action_journal_mod.ActionJournal(ROOT / "logs" / "action_state.json")
+    if cold_boot:
+        journal.clear()
+    try:
+        action_retry_seconds = max(
+            5.0, float((config.get("actions") or {}).get("retry_seconds", 60))
+        )
+    except (TypeError, ValueError):
+        action_retry_seconds = 60.0
     sensors_cfg = config.get("sensors") or {}
+    safety_cfg = config.get("safety") or {}
+    sensor_keys = tuple(
+        key for key in ("cpu", "gpu") if bool(sensors_cfg.get(key, True))
+    )
+    try:
+        sensor_stale_seconds = max(1.0, float(safety_cfg.get("sensor_stale_seconds", 20)))
+    except (TypeError, ValueError):
+        sensor_stale_seconds = 20.0
+    try:
+        sensor_loss_seconds = max(0.0, float(safety_cfg.get("sensor_loss_seconds", 300)))
+    except (TypeError, ValueError):
+        sensor_loss_seconds = 300.0
+    sensor_loss_action = str(safety_cfg.get("sensor_loss_action") or "warn").lower()
+    sensor_lost_since: Optional[float] = None
+    sensor_loss_warned = False
+    sensor_partial_warned = False
+    monitor_cfg = config.get("monitor") or {}
+    heartbeat_url = str(monitor_cfg.get("heartbeat_url") or "").strip()
+    heartbeat_token = str(monitor_cfg.get("heartbeat_token") or "")
+    try:
+        heartbeat_interval = max(
+            10.0, float(monitor_cfg.get("heartbeat_interval_seconds", 60))
+        )
+    except (TypeError, ValueError):
+        heartbeat_interval = 60.0
+    last_heartbeat = 0.0
 
     actions = dict(config.get("actions") or {})
     if dry_run is not None:
@@ -431,6 +518,66 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
             try:
                 temps = sensors.read_temperatures(sensors_cfg)
                 decision = fuse.feed(temps)
+                health = sensors.sensor_health(
+                    sensor_keys,
+                    stale_seconds=sensor_stale_seconds,
+                )
+                all_stale = bool(sensor_keys) and all(
+                    health[key]["stale"] for key in sensor_keys
+                )
+                stale_keys = [key for key in sensor_keys if health[key]["stale"]]
+                if stale_keys and not all_stale and not sensor_partial_warned:
+                    notify_mod.notify(
+                        "WARN",
+                        "部分温度源失效：" + "、".join(stale_keys) + "；仍用剩余传感器判断",
+                        config,
+                    )
+                    sensor_partial_warned = True
+                elif not stale_keys:
+                    sensor_partial_warned = False
+                if all_stale:
+                    if sensor_lost_since is None:
+                        sensor_lost_since = time.monotonic()
+                    lost_for = time.monotonic() - sensor_lost_since
+                    if (
+                        sensor_loss_action == "shutdown"
+                        and sensor_loss_seconds > 0
+                        and lost_for >= sensor_loss_seconds
+                    ):
+                        decision = fuse_mod.Decision(
+                            fuse_mod.SHUTDOWN,
+                            None,
+                            None,
+                            [f"温度传感器全部失效 {lost_for:.0f}s，执行 fail-safe"],
+                            armed=True,
+                        )
+                    elif not sensor_loss_warned:
+                        notify_mod.notify(
+                            "WARN",
+                            f"温度传感器全部失效 {lost_for:.0f}s；"
+                            f"将在 {sensor_loss_seconds:.0f}s 后执行 {sensor_loss_action}",
+                            config,
+                        )
+                        sensor_loss_warned = True
+                else:
+                    sensor_lost_since = None
+                    sensor_loss_warned = False
+
+                _write_json(fuse_state_path, fuse.export_state())
+
+                if heartbeat_url and tick - last_heartbeat >= heartbeat_interval:
+                    heartbeat_mod.send_heartbeat(
+                        heartbeat_url,
+                        heartbeat_token,
+                        {
+                            "source": "temguard",
+                            "state": decision.state,
+                            "cpu": temps.get("cpu"),
+                            "gpu": temps.get("gpu"),
+                            "time": dt.datetime.now().isoformat(timespec="seconds"),
+                        },
+                    )
+                    last_heartbeat = tick
 
                 writer.writerow([
                     dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -442,7 +589,13 @@ def run(config: dict, once: bool = False, dry_run: Optional[bool] = None) -> int
                 ])
                 fh.flush()
 
-                _handle_state(decision, prev_state, config)
+                _handle_state(
+                    decision,
+                    prev_state,
+                    config,
+                    journal,
+                    action_retry_seconds,
+                )
                 prev_state = decision.state
 
                 if once:
