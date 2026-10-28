@@ -25,6 +25,8 @@
 > 目录结构、参数详解、GitHub 开源步骤见 **[docs/使用指南.md](docs/使用指南.md)**。
 >
 > 当前版本、功能和边界速查见 **[docs/版本与功能说明.md](docs/版本与功能说明.md)**。
+>
+> 本地语音/桌宠已拆到独立项目，原因见 **[docs/语音项目拆分.md](docs/语音项目拆分.md)**。
 
 ## 特性
 
@@ -345,6 +347,7 @@ Windows 上要让 CPU 温度可读，必须让 LibreHardwareMonitor 以管理员
 - [x] 个人微信 iLink clean-room 客户端（实验性，受 context_token 限制）
 - [ ] 温度曲线图（读 `logs/temps.csv` 画个 SVG）
 - [ ] 触发后自动降频而不是终止进程
+- [x] 死手开关接口 + Mock（硬件未接，见 [docs/死手开关.md](docs/死手开关.md)）
 
 ## 参与贡献
 
