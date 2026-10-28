@@ -71,11 +71,25 @@ export function apply(ctx, config) {
         const channels = Array.isArray(health.channels)
           ? health.channels.join(", ") || "none"
           : "unknown";
+        const required = Array.isArray(health.required_adapters)
+          ? health.required_adapters.join(", ") || "none"
+          : "none";
+        const pending = health.pending ?? health.queue ?? "?";
+        const outbox = health.outbox && typeof health.outbox === "object"
+          ? Object.entries(health.outbox)
+              .map(([key, value]) => `${key}=${value}`)
+              .join(", ") || "empty"
+          : "unknown";
+        const errors = Array.isArray(health.config_errors)
+          ? health.config_errors.join("; ")
+          : "";
         return {
           text: [
             `alertd: ${health.status || "unknown"}`,
-            `queue: ${health.queue ?? "?"}`,
+            `pending: ${pending} (${outbox})`,
             `channels: ${channels}`,
+            `required: ${required}`,
+            ...(errors ? [`config errors: ${errors}`] : []),
             `latest temp: ${last}`,
           ].join("\n"),
         };

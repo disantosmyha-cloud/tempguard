@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](pyproject.toml)
 [![CI](https://github.com/disantosmyha-cloud/tempguard/actions/workflows/python.yml/badge.svg)](https://github.com/disantosmyha-cloud/tempguard/actions/workflows/python.yml)
+[![npm](https://img.shields.io/npm/v/dsh-plugin-tempguard.svg)](https://www.npmjs.com/package/dsh-plugin-tempguard)
 
 **是什么**：一个本地温度看门狗。每隔几秒读一次 CPU/GPU 温度，写进 CSV，温度持续超限就按四态升级：安全 → 警告 → 终止进程 → 关机。
 
@@ -160,7 +161,13 @@ qq_onebot / wechat_ilink / wechat_hook / astrbot
 - `tempguard_status`：读取 alertd 健康状态和最新温度；
 - `tempguard_alert`：通过 alertd 发送告警。
 
-安装和配置见 [docs/DSH插件.md](docs/DSH插件.md)。本机 web profile 已安装；插件市场发布需要 npm 账号和 awesome-dsh-plugin PR。
+npm 包已发布：
+
+```powershell
+npm install dsh-plugin-tempguard
+```
+
+安装和配置见 [docs/DSH插件.md](docs/DSH插件.md)。市场目录 PR 已通过检查，等待维护者合并。
 
 ### 测试所有告警通道
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## DSH plugin 0.1.5 — npm 发布
+
+- `dsh-plugin-tempguard@0.1.5` 已发布到 npm。
+- `tempguard_status` 修正 `queue` 字段：现在读取 alertd 的 `pending`/`outbox`/`required_adapters`/`config_errors`。
+- npm 包补充 repository/homepage/bugs/keywords 元数据。
+- `node --test` 通过。
+
 ## v1.5.1 — 开源准备
 
 - 文档去个人化：QQ 号、邮箱、本机绝对路径改为占位符。

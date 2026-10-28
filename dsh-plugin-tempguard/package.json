@@ -1,10 +1,26 @@
 {
   "name": "dsh-plugin-tempguard",
-  "version": "0.1.2",
+  "version": "0.1.5",
   "description": "Tempguard temperature watchdog tools for DeepSeek Harness",
   "type": "module",
   "main": "lib/index.js",
   "icon": "./icon.svg",
+  "homepage": "https://github.com/disantosmyha-cloud/tempguard/tree/main/dsh-plugin-tempguard",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/disantosmyha-cloud/tempguard.git",
+    "directory": "dsh-plugin-tempguard"
+  },
+  "bugs": {
+    "url": "https://github.com/disantosmyha-cloud/tempguard/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "temperature",
+    "watchdog",
+    "windows"
+  ],
   "exports": {
     ".": "./lib/index.js",
     "./package.json": "./package.json",
