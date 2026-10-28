@@ -23,6 +23,8 @@
 > 想临时演习：`python main.py --dry-run`；想强制使用公开配置：`python main.py --config config.yaml`。
 >
 > 目录结构、参数详解、GitHub 开源步骤见 **[docs/使用指南.md](docs/使用指南.md)**。
+>
+> 当前版本、功能和边界速查见 **[docs/版本与功能说明.md](docs/版本与功能说明.md)**。
 
 ## 特性
 
