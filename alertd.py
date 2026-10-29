@@ -25,6 +25,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -40,6 +41,62 @@ DEFAULT_PORT = 8765
 MAX_BODY_BYTES = 64 * 1024
 MAX_LOG_BYTES = 5 * 1024 * 1024
 DEFAULT_WAIT_SECONDS = 10.0
+MAX_TEMP_ROWS = 120
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _cors_headers(origin: Optional[str]) -> dict:
+    """只放行本机页面的只读温度查询（DSH Web UI 在 127.0.0.1:3080）。"""
+    if not origin:
+        return {}
+    try:
+        parts = urlsplit(origin)
+    except ValueError:
+        return {}
+    if parts.scheme not in ("http", "https") or (parts.hostname or "") not in LOOPBACK_HOSTS:
+        return {}
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, X-Alert-Token",
+        "Access-Control-Max-Age": "600",
+        "Vary": "Origin",
+    }
+
+
+def _read_temps(limit: int = MAX_TEMP_ROWS) -> list[dict]:
+    """读取 logs/temps.csv 的最后几行，供本机桌宠/状态页展示。"""
+    path = ROOT / "logs" / "temps.csv"
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            lines = [line.strip() for line in fh if line.strip()]
+    except OSError:
+        return []
+    rows: list[dict] = []
+    for line in lines[-max(1, int(limit)):]:
+        if line.lower().startswith("time"):
+            continue
+        cells = line.split(",")
+        if len(cells) < 2:
+            continue
+
+        def number(index):
+            try:
+                return float(cells[index])
+            except (IndexError, ValueError):
+                return None
+
+        rows.append(
+            {
+                "at": cells[0].strip(),
+                "cpu": number(1),
+                "gpu": number(2),
+                "hottest": number(3),
+                "state": cells[4].strip() if len(cells) > 4 else "unknown",
+                "reason": cells[5].strip() if len(cells) > 5 else "",
+            }
+        )
+    return rows
 
 
 def load_config(path: Path) -> dict:
@@ -298,6 +355,8 @@ def _make_handler(service: AlertService):
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            for key, value in _cors_headers(self.headers.get("Origin")).items():
+                self.send_header(key, value)
             self.end_headers()
             self.wfile.write(body)
 
@@ -311,7 +370,25 @@ def _make_handler(service: AlertService):
                     supplied = auth[7:].strip()
             return hmac.compare_digest(supplied, service.token)
 
+        def do_OPTIONS(self):
+            self.send_response(204)
+            for key, value in _cors_headers(self.headers.get("Origin")).items():
+                self.send_header(key, value)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def do_GET(self):
+            if self.path.startswith("/temps"):
+                rows = _read_temps()
+                self._send(
+                    200,
+                    {
+                        "status": "ok",
+                        "rows": rows,
+                        "last": rows[-1] if rows else None,
+                    },
+                )
+                return
             if self.path != "/health":
                 self._send(404, {"status": "error", "message": "not found"})
                 return

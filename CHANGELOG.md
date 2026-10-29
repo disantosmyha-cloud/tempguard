@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.6.1 — 只读温度 API 回归
+
+- 恢复 `GET /temps`（只读，限 loopback，带本机 CORS），供桌宠/状态页读取温度；
+- 不恢复任何 `/pet/*` 语音接口，语音仍由独立 `tempguard-voice` 服务提供；
+- 新增 `_read_temps` 解析测试。
+
 ## v1.6.0 — 语音拆分 / 死手开关接口
 
 - 本地语音/桌宠拆到独立项目 `tempguard-voice`，主仓库不再包含 Pet/CosyVoice/模型/虚拟环境。
